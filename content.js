@@ -219,6 +219,27 @@
     return names;
   }
 
+  function navEl() {
+    return qa('div[role="navigation"]').sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0] || null;
+  }
+  function sidebarCollapsed() {
+    const nav = navEl();
+    return !!nav && nav.getBoundingClientRect().width < 150;
+  }
+  /** Expand Gmail's collapsed (icon-only) sidebar. Returns a restore function. */
+  async function ensureSidebarExpanded() {
+    if (!sidebarCollapsed()) return async () => {};
+    const burger = q('[aria-label="Main menu"], [data-tooltip="Main menu"], [aria-label="Hauptmenü"]') || qa('[role="button"]').find((b) => /main menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || ""));
+    if (!burger) throw new Error(`sidebar is collapsed and the Main menu button was not found. ${diag()}`);
+    click(burger);
+    await sleep(800);
+    if (sidebarCollapsed()) throw new Error("sidebar still collapsed after clicking Main menu");
+    return async () => {
+      click(burger);
+      await sleep(400);
+    };
+  }
+
   /** Expand the sidebar "More" so hidden labels get rendered. */
   async function expandMore() {
     // Gmail has two "More" toggles (system folders, labels). Click every collapsed one.
@@ -257,8 +278,13 @@
   }
 
   async function existingLabels({ deep = true } = {}) {
-    await expandMore().catch(() => {});
+    let restore = async () => {};
+    try {
+      restore = await ensureSidebarExpanded();
+      await expandMore();
+    } catch {}
     const nav = labelsFromNav();
+    await restore().catch(() => {});
     let menu = [];
     try {
       menu = await labelsFromMenu();
@@ -447,12 +473,16 @@
       location.hash = "#inbox";
       await sleep(1200);
     }
+    const restoreSidebar = await ensureSidebarExpanded();
     let row = navLabelRow(name);
     if (!row) {
       await expandMore();
-      row = navLabelRow(name);
+      row = await waitFor(() => navLabelRow(name), { timeout: 3000 });
     }
-    if (!row) throw new Error(`label "${name}" not visible in the sidebar even after expanding More. Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
+    if (!row) {
+      await restoreSidebar();
+      throw new Error(`label "${name}" not visible in the sidebar even after expanding More (nav width ${Math.round(navEl()?.getBoundingClientRect().width || 0)}px). Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
+    }
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(250);
     row.scrollIntoView({ block: "center" });
@@ -502,6 +532,7 @@
       if (ok) click(ok);
     }
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await restoreSidebar();
     return true;
   }
 
@@ -560,6 +591,9 @@
           await setLabelVisibility(real, "show");
           location.hash = "#inbox";
           await sleep(1500);
+          const restore = await ensureSidebarExpanded().catch(() => async () => {});
+          await waitFor(() => navLabelRow(real), { timeout: 6000 });
+          await restore();
           if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color} (via temporary show)`);
         } catch (e2) {
           report.errors.push(`color ${real}: ${e2.message}`);
