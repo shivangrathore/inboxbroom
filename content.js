@@ -959,13 +959,20 @@
       if (parsed.every((p) => seenIds.has(p.id))) break;
       parsed.forEach((p) => seenIds.add(p.id));
 
-      const toAsk = parsed.filter((p) => !(p.id in cache) || cache[p.id].manual !== true && mode === "scan" && ctx.rescore);
+      const needsLabel = (c) => ctx.labels?.length && !c.junk && !c.label && !c.labeled && !c.manual;
+      const toAsk = parsed.filter((p) => !(p.id in cache) || needsLabel(cache[p.id]) || (cache[p.id].manual !== true && mode === "scan" && ctx.rescore));
       progress(`${mode === "scan" ? "Previewing" : "Cleaning"}: ${rule.name} – page ${page}/${maxPages}, AI checking ${toAsk.length} mail(s)…`);
       if (toAsk.length) {
         const verdicts = await browser.runtime.sendMessage({ type: "aiClassify", items: toAsk, rule, labels: ctx.labels });
         if (verdicts?.error) throw new Error(verdicts.error);
         const merged = {};
-        for (const v of verdicts) merged[v.id] = cache[v.id] = { junk: !!v.junk, score: v.score, reason: v.reason || "", source: v.source, label: v.label || "", at: Date.now() };
+        for (const v of verdicts) {
+          const prev = cache[v.id];
+          const relabelOnly = prev && !prev.junk && !prev.label && !v.junk;
+          merged[v.id] = cache[v.id] = relabelOnly
+            ? { ...prev, label: v.label || "", at: Date.now() }
+            : { junk: !!v.junk, score: v.score, reason: v.reason || "", source: v.source, label: v.label || "", at: Date.now() };
+        }
         ctx.aiCache = cache;
         browser.runtime.sendMessage({ type: "aiCacheMerge", entries: merged }).catch(() => {});
       }
