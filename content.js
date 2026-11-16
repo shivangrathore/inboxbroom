@@ -338,7 +338,7 @@
   async function renameLabel(from, to) {
     await openLabelSettings();
     const row = settingsLabelRow(from);
-    if (!row) throw new Error(`label "${from}" not found in Settings → Labels`);
+    if (!row) throw new Error(`label "${from}" not found in Settings → Labels (rows seen: ${qa("tr").filter((tr) => tr.querySelector("td")).slice(0, 12).map((tr) => txt(tr.querySelector("td")).slice(0, 25)).join(" | ")})`);
     const edit = rowLink(row, /^edit$/i);
     if (!edit) throw new Error(`no edit link for "${from}"`);
     click(edit);
@@ -356,7 +356,7 @@
   async function setLabelVisibility(name, mode) {
     await openLabelSettings();
     const row = settingsLabelRow(name);
-    if (!row) throw new Error(`label "${name}" not found in Settings → Labels`);
+    if (!row) throw new Error(`label "${name}" not found in Settings → Labels (rows seen: ${qa("tr").filter((tr) => tr.querySelector("td")).slice(0, 12).map((tr) => txt(tr.querySelector("td")).slice(0, 25)).join(" | ")})`);
     const re = mode === "hide" ? /^hide$/i : mode === "unread" ? /^show if unread$/i : /^show$/i;
     // the first group of links is "In label list", the second "In message list"; take the first match
     const link = rowLink(row, re);
@@ -392,15 +392,15 @@
       await sleep(1200);
     }
     const row = navLabelRow(name);
-    if (!row) throw new Error(`label "${name}" not visible in the sidebar (hidden under More?)`);
+    if (!row) throw new Error(`label "${name}" not visible in the sidebar (hidden under More?). Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
     row.scrollIntoView({ block: "center" });
     row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     await sleep(300);
     const dots = [...row.querySelectorAll('[role="button"]')].find((b) => /options|more|menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "")) || row.querySelector('[role="button"]:not([aria-label*="Create"])');
-    if (!dots) throw new Error(`no options button on "${name}" row`);
+    if (!dots) throw new Error(`no options button on "${name}" row (buttons: ${[...row.querySelectorAll('[role="button"]')].map((b) => b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || txt(b) || b.className.slice(0, 20)).join(" | ") || "none"}; row tag ${row.tagName}.${String(row.className).slice(0, 30)})`);
     click(dots);
     const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 4000 });
-    if (!menu) throw new Error("label menu did not open");
+    if (!menu) throw new Error(`label menu did not open (visible menus: ${qa('div[role="menu"]').map((m) => txt(m).slice(0, 60)).join(" || ") || "none"})`);
     const colorItem = qa('[role="menuitem"]', menu).find((it) => /^label colou?r$/i.test(txt(it)));
     if (!colorItem) throw new Error('"Label color" item not found');
     colorItem.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
@@ -467,6 +467,7 @@
       }
     }
     report.labels = [...current.values()];
+    await browser.storage.local.set({ lastToolReport: { at: Date.now(), tool: "organizeLabels", ...report }, knownLabels: report.labels }).catch(() => {});
     progress(`Labels organized: ${report.created.length} created, ${report.renamed.length} renamed, ${report.colored.length} colored${report.errors.length ? `, ${report.errors.length} error(s)` : ""}.`, report.errors.length ? "error" : "ok");
     hideBanner(6000);
     location.hash = startHash && !startHash.startsWith("#settings") ? startHash : "#inbox";
