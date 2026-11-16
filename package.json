@@ -1,6 +1,6 @@
 {
   "name": "inboxbroom",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Inbox Broom: Firefox extension that sweeps junk out of Gmail by driving the web UI, with optional local-LLM triage via Ollama.",
   "scripts": {
