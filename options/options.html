@@ -40,12 +40,7 @@
         <div class="card-b">
           <p class="help"><b>Bulk</b> rules act on everything their <a href="https://support.google.com/mail/answer/7190" target="_blank">Gmail search</a> returns. <b>AI</b> rules run the search, score each mail with your local model and act only on junk; kept mail gets a label.
             Actions: <b>Delete</b> = Trash (30-day undo), <b>Archive</b>, <b>Label + archive</b> (Gmail “Move to”). <b>Inbox only</b> forces <code>in:inbox</code> so archived mail is never touched. Rules run top to bottom.</p>
-          <div class="tablewrap">
-          <table id="rules">
-            <thead><tr><th>On</th><th>Type</th><th>Name</th><th>Query</th><th>Action</th><th>Label</th><th title="Force in:inbox">Inbox only</th><th title="AI rules: pages of ~50 per run">Pages</th><th></th></tr></thead>
-            <tbody></tbody>
-          </table>
-          </div>
+          <div id="rules" class="rules"></div>
           <details class="help"><summary>Query ideas</summary>
             <ul>
               <li><code>category:updates older_than:14d -from:(bank.com OR gov.in)</code></li>

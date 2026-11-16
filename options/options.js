@@ -3,96 +3,68 @@ const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra 
 let defaultPrompt = "";
 
 function ruleRow(rule = {}) {
-  const tr = document.createElement("tr");
-  tr.dataset.id = rule.id || `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-  tr.innerHTML = `
-    <td><input type="checkbox" class="on" ${rule.enabled !== false ? "checked" : ""}></td>
-    <td><select class="type"><option value="query">Bulk</option><option value="ai">AI</option></select></td>
-    <td><input type="text" class="name" placeholder="Name"></td>
-    <td class="q"><input type="text" class="query" placeholder="category:promotions" spellcheck="false"></td>
-    <td><select class="action"><option value="label">Label + archive</option><option value="archive">Archive</option><option value="delete">Delete</option></select></td>
-    <td><input type="text" class="label" placeholder="Cleaned/Promo" spellcheck="false"></td>
-    <td><input type="checkbox" class="inbox" ${rule.inboxOnly !== false ? "checked" : ""}></td>
-    <td><input type="number" class="pages" min="1" max="40"></td>
-    <td><button class="btn sm danger-outline del" title="Remove">✕</button></td>`;
-  tr.querySelector(".type").value = rule.type === "ai" ? "ai" : "query";
-  tr.querySelector(".name").value = rule.name || "";
-  tr.querySelector(".query").value = rule.query || "";
-  tr.querySelector(".action").value = rule.action === "trash" ? "delete" : rule.action || "label";
-  tr.querySelector(".label").value = rule.label || "";
-  tr.querySelector(".pages").value = rule.maxPages || 10;
+  const card = document.createElement("div");
+  card.className = "rule-card";
+  card.dataset.id = rule.id || `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  card.innerHTML = `
+    <div class="rc-top">
+      <label class="switch" title="Enabled"><input type="checkbox" class="on"><span></span></label>
+      <input type="text" class="name" placeholder="Rule name">
+      <select class="type" title="Rule type"><option value="query">Bulk</option><option value="ai">AI</option></select>
+      <select class="action" title="Action"><option value="delete">Delete (Trash)</option><option value="archive">Archive</option><option value="label">Label + archive</option></select>
+      <input type="text" class="label" placeholder="Label name" spellcheck="false">
+      <button class="btn icon del" title="Remove rule">✕</button>
+    </div>
+    <textarea class="query" rows="2" spellcheck="false" placeholder="Gmail search, e.g. category:promotions -is:starred"></textarea>
+    <div class="rc-bottom">
+      <label class="inline"><input type="checkbox" class="inbox"> Inbox only (forces <code>in:inbox</code>)</label>
+      <label class="inline pages-wrap">Pages to scan <input type="number" class="pages" min="1" max="40"></label>
+      <span class="small muted hint"></span>
+    </div>`;
+  card.querySelector(".on").checked = rule.enabled !== false;
+  card.querySelector(".type").value = rule.type === "ai" ? "ai" : "query";
+  card.querySelector(".name").value = rule.name || "";
+  card.querySelector(".query").value = rule.query || "";
+  card.querySelector(".action").value = rule.action === "trash" ? "delete" : rule.action || "delete";
+  card.querySelector(".label").value = rule.label || "";
+  card.querySelector(".inbox").checked = rule.inboxOnly !== false;
+  card.querySelector(".pages").value = rule.maxPages || 10;
   const sync = () => {
-    tr.querySelector(".pages").disabled = tr.querySelector(".type").value !== "ai";
-    tr.querySelector(".label").disabled = tr.querySelector(".action").value !== "label";
+    const ai = card.querySelector(".type").value === "ai";
+    card.querySelector(".pages-wrap").classList.toggle("hidden", !ai);
+    card.querySelector(".label").classList.toggle("hidden", card.querySelector(".action").value !== "label");
+    card.querySelector(".hint").textContent = ai ? "AI: scores each mail; junk is removed, kept mail is labeled." : "Bulk: everything the search returns gets the action.";
+    card.classList.toggle("off", !card.querySelector(".on").checked);
   };
-  tr.querySelector(".type").onchange = sync;
-  tr.querySelector(".action").onchange = sync;
+  card.querySelector(".type").onchange = sync;
+  card.querySelector(".action").onchange = sync;
+  card.querySelector(".on").onchange = sync;
   sync();
-  tr.querySelector(".del").onclick = () => tr.remove();
-  return tr;
+  card.querySelector(".del").onclick = () => card.remove();
+  return card;
 }
 
 function readRules() {
-  return [...document.querySelectorAll("#rules tbody tr")]
-    .map((tr) => ({
-      id: tr.dataset.id,
-      type: tr.querySelector(".type").value,
-      enabled: tr.querySelector(".on").checked,
-      name: tr.querySelector(".name").value.trim() || tr.querySelector(".query").value.trim(),
-      query: tr.querySelector(".query").value.trim(),
-      action: tr.querySelector(".action").value,
-      label: tr.querySelector(".label").value.trim() || "Cleaned",
-      inboxOnly: tr.querySelector(".inbox").checked,
-      maxPages: Math.max(1, Number(tr.querySelector(".pages").value) || 10),
+  return [...document.querySelectorAll("#rules .rule-card")]
+    .map((c) => ({
+      id: c.dataset.id,
+      type: c.querySelector(".type").value,
+      enabled: c.querySelector(".on").checked,
+      name: c.querySelector(".name").value.trim() || c.querySelector(".query").value.trim(),
+      query: c.querySelector(".query").value.trim().replace(/\s+/g, " "),
+      action: c.querySelector(".action").value,
+      label: c.querySelector(".label").value.trim() || "Cleaned",
+      inboxOnly: c.querySelector(".inbox").checked,
+      maxPages: Math.max(1, Number(c.querySelector(".pages").value) || 10),
     }))
     .filter((r) => r.query);
 }
 
-const GMAIL_COLOR_NAMES = ["", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray", "brown"];
-function styleRow(label, st = {}) {
-  const tr = document.createElement("tr");
-  tr.dataset.label = label;
-  tr.innerHTML = `<td></td><td><select class="sc"></select></td><td><select class="sv"><option value="">leave</option><option value="show">show (pinned)</option><option value="unread">show if unread</option><option value="hide">hide (under More)</option></select></td>`;
-  tr.querySelector("td").textContent = label;
-  const sc = tr.querySelector(".sc");
-  for (const c of GMAIL_COLOR_NAMES) sc.appendChild(new Option(c || "leave", c));
-  sc.value = st.color || "";
-  tr.querySelector(".sv").value = st.show || "";
-  return tr;
-}
-function readLabelStyle() {
-  const out = {};
-  for (const tr of document.querySelectorAll("#labelStyle tbody tr")) {
-    const color = tr.querySelector(".sc").value;
-    const show = tr.querySelector(".sv").value;
-    if (color || show) out[tr.dataset.label] = { ...(color ? { color } : {}), ...(show ? { show } : {}) };
-  }
-  return out;
-}
-
-function retentionRow(label = "", days = "") {
-  const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="btn sm danger-outline del">✕</button></td>`;
-  tr.querySelector(".rl").value = label;
-  tr.querySelector(".rd").value = days;
-  tr.querySelector(".del").onclick = () => tr.remove();
-  return tr;
-}
-function readRetention() {
-  const out = {};
-  for (const tr of document.querySelectorAll("#retention tbody tr")) {
-    const l = tr.querySelector(".rl").value.trim();
-    const d = Number(tr.querySelector(".rd").value) || 0;
-    if (l) out[l] = d;
-  }
-  return out;
-}
-
 async function load() {
   const s = await send("getSettings");
-  const tbody = document.querySelector("#rules tbody");
-  tbody.innerHTML = "";
-  for (const r of s.rules) tbody.appendChild(ruleRow(r));
+  const rulesRoot = document.querySelector("#rules");
+  rulesRoot.innerHTML = "";
+  for (const r of s.rules) rulesRoot.appendChild(ruleRow(r));
   $("allowlist").value = (s.allowlist || []).join("\n");
   $("labelFormat").value = s.labelFormat || "auto";
   const sb = document.querySelector("#labelStyle tbody");
@@ -162,7 +134,11 @@ async function save() {
 
 $("aiThreshold").oninput = () => ($("thrVal").textContent = $("aiThreshold").value);
 $("addRetention").onclick = () => document.querySelector("#retention tbody").appendChild(retentionRow());
-$("addRule").onclick = () => document.querySelector("#rules tbody").appendChild(ruleRow({ type: "query", action: "label" }));
+$("addRule").onclick = () => {
+  const c = ruleRow({ type: "query", action: "delete", enabled: true });
+  document.querySelector("#rules").appendChild(c);
+  c.querySelector(".name").focus();
+};
 $("save").onclick = save;
 $("aiReset").onclick = () => ($("aiPrompt").value = defaultPrompt);
 $("aiCacheClear").onclick = async () => {
