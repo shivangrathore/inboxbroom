@@ -101,6 +101,18 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
     </section>
 
     <section>
+      <h2>Tools</h2>
+      <p class="muted">Needs an open Gmail tab. Actions run inside it.</p>
+      <div class="row">
+        <button id="toolListLabels" class="small">Show my Gmail labels</button>
+        <button id="toolCreateLabels" class="small">Create my labels in Gmail</button>
+        <span id="toolResult" class="muted"></span>
+      </div>
+      <p class="muted">"Create my labels" adds the suggested labels and every label in the expiry table that doesn't exist yet
+        (Gmail → <em>Create new label</em>), so they show up in Gmail's sidebar and the AI can use them. Existing ones are left alone.</p>
+    </section>
+
+    <section>
       <h2>Behaviour</h2>
       <label class="inline"><input id="returnToInbox" type="checkbox" /> Return to where I was in Gmail after a run</label>
       <br />

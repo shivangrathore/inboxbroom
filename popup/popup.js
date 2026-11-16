@@ -295,6 +295,18 @@ $("review").onclick = () => send("openReview").then(() => window.close());
 $("clean").onclick = () => runMode("clean");
 $("stop").onclick = () => send("stop");
 $("openOptions").onclick = () => browser.runtime.openOptionsPage();
+$("createLabels").onclick = async () => {
+  setBusy(true);
+  setStatus("Creating labels… watch the Gmail tab.", "running");
+  try {
+    const r = await send("createLabels");
+    setStatus(`Labels: ${r.created.length} created, ${r.existing.length} existed${r.failed.length ? `, ${r.failed.length} failed` : ""}.`, r.failed.length ? "error" : "ok");
+  } catch (e) {
+    setStatus(friendlyError(e), "error");
+  } finally {
+    setBusy(false);
+  }
+};
 $("historyBtn").onclick = () => $("historyList").classList.toggle("hidden");
 browser.storage.onChanged.addListener((ch) => {
   if (ch.progress?.newValue?.text && busy) setStatus(ch.progress.newValue.text, "running");

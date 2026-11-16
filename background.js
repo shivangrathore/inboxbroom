@@ -779,6 +779,19 @@ browser.runtime.onMessage.addListener(async (msg) => {
     }
     case "apply":
       return applyPlan(msg.plan);
+    case "createLabels": {
+      const s = await getSettings();
+      const tab = await findGmailTab({ create: true });
+      if (!tab) throw new Error("NO_GMAIL_TAB");
+      await browser.tabs.update(tab.id, { active: true });
+      const names = msg.names?.length ? msg.names : [...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*")];
+      return browser.tabs.sendMessage(tab.id, { type: "createLabels", names: [...new Set(names)] });
+    }
+    case "listLabels": {
+      const tab = await findGmailTab();
+      if (!tab) throw new Error("NO_GMAIL_TAB");
+      return browser.tabs.sendMessage(tab.id, { type: "listLabels" });
+    }
     case "aiCacheMerge": {
       const cache = await getAiCache();
       for (const [k, v] of Object.entries(msg.entries || {})) cache[k] = { ...(cache[k] || {}), ...v };

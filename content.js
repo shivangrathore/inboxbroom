@@ -232,6 +232,74 @@
     return [...all.values()];
   }
 
+  function createLabelButton() {
+    return (
+      q('[role="button"][aria-label="Create new label"], [role="button"][data-tooltip="Create new label"]') ||
+      q('div[role="button"][aria-label^="Create new label"]') ||
+      qa('[role="button"], button').find((b) => /^create new label$/i.test(txt(b))) ||
+      null
+    );
+  }
+
+  /** Create a Gmail label through the sidebar "+" (or Settings → Labels) dialog. */
+  async function createLabel(name) {
+    let btn = createLabelButton();
+    if (!btn) {
+      // try the settings page, which always has a "Create new label" button
+      location.hash = "#settings/labels";
+      await sleep(1500);
+      btn = await waitFor(createLabelButton, { timeout: 6000 });
+    }
+    if (!btn) throw new Error(`"Create new label" button not found. ${diag()}`);
+    click(btn);
+    const dlg = await waitFor(dialog, { timeout: 5000 });
+    if (!dlg) throw new Error("Create label dialog did not open");
+    const input = q("input[type='text'], input:not([type])", dlg) || q("input", dlg);
+    if (!input) throw new Error("Label name field not found");
+    typeInto(input, name);
+    await sleep(200);
+    const createBtn = dialogButton(/^create$/i);
+    if (!createBtn) throw new Error("Create button not found");
+    click(createBtn);
+    await sleep(900);
+    const err = dialog();
+    if (err && /already exists|invalid|too long/i.test(txt(err))) {
+      const cancel = dialogButton(/^(cancel|ok|close)$/i);
+      if (cancel) click(cancel);
+      throw new Error(txt(err).slice(0, 100));
+    }
+    return true;
+  }
+
+  async function createLabels(names) {
+    const startHash = location.hash;
+    if (!location.hash.startsWith("#inbox")) {
+      location.hash = "#inbox";
+      await sleep(1200);
+    }
+    const existing = new Set((await existingLabels()).map((l) => l.toLowerCase()));
+    const out = { created: [], existing: [], failed: [] };
+    for (const name of names) {
+      if (stopRequested) break;
+      if (existing.has(name.toLowerCase())) {
+        out.existing.push(name);
+        continue;
+      }
+      progress(`Creating label "${name}"…`);
+      try {
+        await createLabel(name);
+        out.created.push(name);
+        existing.add(name.toLowerCase());
+      } catch (e) {
+        out.failed.push({ name, error: e.message });
+      }
+    }
+    progress(`Labels: ${out.created.length} created, ${out.existing.length} already there${out.failed.length ? `, ${out.failed.length} failed` : ""}.`, out.failed.length ? "error" : "ok");
+    hideBanner(5000);
+    location.hash = startHash && !startHash.startsWith("#settings") ? startHash : "#inbox";
+    return out;
+  }
+
   async function clearSelection() {
     const cb = selectAllCheckbox();
     if (!cb) return;
@@ -802,6 +870,8 @@
   browser.runtime.onMessage.addListener((msg) => {
     if (msg.type === "run") return run(msg);
     if (msg.type === "apply") return apply(msg);
+    if (msg.type === "createLabels") return createLabels(msg.names || []);
+    if (msg.type === "listLabels") return existingLabels();
     if (msg.type === "stop") {
       stopRequested = true;
       return Promise.resolve(true);

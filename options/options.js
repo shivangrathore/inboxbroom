@@ -149,6 +149,27 @@ $("aiExport").onclick = async () => {
   await browser.downloads.download({ url, filename: "gmail-cleaner-ai-log.json", saveAs: false });
   $("aiResult").textContent = `Exported ${log.length} classified mail(s) to Downloads/gmail-cleaner-ai-log.json`;
 };
+$("toolListLabels").onclick = async () => {
+  $("toolResult").textContent = "Reading…";
+  try {
+    const l = await send("listLabels");
+    $("toolResult").textContent = l.length ? `${l.length} labels: ${l.join(", ")}` : "No labels found.";
+  } catch (e) {
+    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+  }
+};
+$("toolCreateLabels").onclick = async () => {
+  await save();
+  $("toolResult").textContent = "Creating… watch the Gmail tab.";
+  try {
+    const r = await send("createLabels");
+    $("toolResult").textContent =
+      `Created: ${r.created.join(", ") || "none"}. Already existed: ${r.existing.join(", ") || "none"}.` +
+      (r.failed.length ? ` Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}` : "");
+  } catch (e) {
+    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+  }
+};
 $("aiTest").onclick = async () => {
   $("aiResult").textContent = "Testing…";
   await save();
