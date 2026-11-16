@@ -221,14 +221,23 @@
 
   /** Expand the sidebar "More" so hidden labels get rendered. */
   async function expandMore() {
-    const nav = q('div[role="navigation"]') || document;
-    const more = qa('[role="button"], span, div', nav).find((el) => /^more$/i.test(txt(el)) && el.children.length <= 2 && el.getBoundingClientRect().height < 40);
-    if (more) {
-      click(more);
-      await sleep(600);
-      return true;
+    // Gmail has two "More" toggles (system folders, labels). Click every collapsed one.
+    const cands = qa('[role="button"][aria-expanded="false"], div.n6 [role="button"], span.CJ').filter((el) => /^more( labels)?$/i.test(txt(el)) || /more/i.test(el.getAttribute("aria-label") || ""));
+    let clicked = 0;
+    for (const el of cands) {
+      click(el.closest('[role="button"]') || el);
+      clicked++;
+      await sleep(500);
     }
-    return false;
+    if (!clicked) {
+      const any = qa("span, div").find((el) => /^more$/i.test(txt(el)) && el.children.length === 0 && el.getBoundingClientRect().height < 40 && el.getBoundingClientRect().height > 0);
+      if (any) {
+        click(any.closest('[role="button"]') || any);
+        clicked++;
+        await sleep(500);
+      }
+    }
+    return clicked > 0;
   }
 
   /** All user labels from Settings → Labels (complete, includes hidden ones). Restores the previous view. */
@@ -541,7 +550,26 @@
       try {
         if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color}`);
       } catch (e) {
-        report.errors.push(`color ${real}: ${e.message}`);
+        if (!/not visible in the sidebar/i.test(e.message)) {
+          report.errors.push(`color ${real}: ${e.message}`);
+          continue;
+        }
+        // hidden label: make it visible, color, then restore its visibility
+        try {
+          progress(`"${real}" is hidden – showing it temporarily to set the color…`);
+          await setLabelVisibility(real, "show");
+          location.hash = "#inbox";
+          await sleep(1500);
+          if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color} (via temporary show)`);
+        } catch (e2) {
+          report.errors.push(`color ${real}: ${e2.message}`);
+        } finally {
+          try {
+            await setLabelVisibility(real, st.show || "unread");
+          } catch (e3) {
+            report.errors.push(`restore visibility ${real}: ${e3.message}`);
+          }
+        }
       }
     }
     report.labels = [...current.values()];
