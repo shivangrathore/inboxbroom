@@ -297,16 +297,21 @@ $("stop").onclick = () => send("stop");
 $("openOptions").onclick = () => browser.runtime.openOptionsPage();
 $("createLabels").onclick = async () => {
   setBusy(true);
-  setStatus("Creating labels… watch the Gmail tab.", "running");
+  setStatus("Organizing labels… watch the Gmail tab.", "running");
   try {
     const r = await send("organizeLabels");
-    setStatus(`Labels: ${r.created.length} created, ${r.renamed.length} renamed, ${r.colored.length} colored${r.errors.length ? `, ${r.errors.length} error(s), see Settings → Tools` : ""}.`, r.errors.length ? "error" : "ok");
+    setStatus(
+      `Labels: ${r.created.length} created, ${r.renamed.length} renamed, ${r.colored.length} colored.` +
+        (r.errors.length ? `\n${r.errors.length} error(s). First: ${r.errors[0]}\nFull list in Settings → Labels & tools.` : ""),
+      r.errors.length ? "error" : "ok"
+    );
   } catch (e) {
     setStatus(friendlyError(e), "error");
   } finally {
     setBusy(false);
   }
 };
+$("editRules").onclick = () => browser.runtime.openOptionsPage();
 $("historyBtn").onclick = () => $("historyList").classList.toggle("hidden");
 browser.storage.onChanged.addListener((ch) => {
   if (ch.progress?.newValue?.text && busy) setStatus(ch.progress.newValue.text, "running");

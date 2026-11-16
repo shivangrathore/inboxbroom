@@ -38,7 +38,7 @@ function renderSummary() {
     [s.unsub, "to unsubscribe"],
   ]) {
     const d = document.createElement("div");
-    d.className = "stat";
+    d.className = "stat" + (t.includes("delete") || t.includes("unsubscribe") ? " danger" : "");
     d.innerHTML = `<b></b><span></span>`;
     d.querySelector("b").textContent = n;
     d.querySelector("span").textContent = t;

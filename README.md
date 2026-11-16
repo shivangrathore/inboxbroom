@@ -1,6 +1,8 @@
-# Gmail Inbox Cleaner (Firefox)
+# Inbox Broom
 
-Firefox extension that cleans junk out of your Gmail inbox by **driving the Gmail web page the way you would by hand**.
+**Sweep junk out of Gmail, from Firefox, with a local AI. No API keys, nothing leaves your machine.**
+
+Inbox Broom is a Firefox extension that cleans junk out of your Gmail inbox by **driving the Gmail web page the way you would by hand**.
 No Google API, no OAuth client, no cloud: it runs searches, ticks rows, clicks Archive / Delete / Label / Unsubscribe.
 Optional **local AI** (Ollama) decides what is junk, labels what you keep, and suggests subscriptions to drop.
 
@@ -28,7 +30,7 @@ Nothing is ever permanently deleted: junk goes to Trash (30-day undo), kept mail
 
 ### Quick (temporary, gone on restart)
 
-1. Download `gmail-inbox-cleaner.xpi` from [Releases](../../releases) or clone this repo.
+1. Download `inboxbroom.xpi` from [Releases](../../releases) or clone this repo.
 2. Firefox → `about:debugging` → **This Firefox** → **Load Temporary Add-on…** → pick the `.xpi` (or `manifest.json` from the clone).
 
 ### Permanent

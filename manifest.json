@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
-  "name": "Gmail Inbox Cleaner",
+  "name": "Inbox Broom",
   "version": "1.0.0",
-  "description": "Archive or delete promotional, social and other junk mail from your Gmail inbox by driving the Gmail web UI. No API keys, no setup.",
+  "description": "Sweeps junk out of Gmail from Firefox: bulk rules plus optional local AI (Ollama) to delete junk, label what you keep, and unsubscribe. No API keys, nothing leaves your machine.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "gmail-inbox-cleaner@shivangrathore.github.io",
+      "id": "inboxbroom@shivangrathore.github.io",
       "strict_min_version": "115.0"
     }
   },
@@ -40,7 +40,7 @@
     "persistent": false
   },
   "browser_action": {
-    "default_title": "Gmail Inbox Cleaner",
+    "default_title": "Inbox Broom",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "48": "icons/icon-48.png",
@@ -55,6 +55,6 @@
     "48": "icons/icon-48.png",
     "96": "icons/icon-96.png"
   },
-  "homepage_url": "https://github.com/shivangrathore/gmail-inbox-cleaner",
+  "homepage_url": "https://github.com/shivangrathore/inboxbroom",
   "author": "Shivang Rathore"
 }

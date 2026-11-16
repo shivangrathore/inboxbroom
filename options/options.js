@@ -203,10 +203,8 @@ $("toolOrganizeLabels").onclick = async () => {
   $("toolResult").textContent = "Organizing… watch the Gmail tab (it will visit Settings → Labels).";
   try {
     const r = await send("organizeLabels");
-    $("toolResult").textContent =
-      `Format ${r.format}. Created: ${r.created.join(", ") || "none"}. Renamed: ${r.renamed.join(", ") || "none"}. ` +
-      `Colored: ${r.colored.join(", ") || "none"}. Visibility: ${r.visibility.join(", ") || "none"}.` +
-      (r.errors.length ? ` Errors: ${r.errors.join(" | ")}` : "");
+    $("toolResult").style.whiteSpace = "pre-wrap";
+    $("toolResult").textContent = describeReport({ at: Date.now(), ...r });
   } catch (e) {
     $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
   }
@@ -220,4 +218,41 @@ $("aiTest").onclick = async () => {
   $("aiResult").textContent = `OK (${r.model}, ${r.ms} ms): ${v}`;
 };
 
-load();
+function describeReport(r) {
+  if (!r) return "";
+  return (
+    `${new Date(r.at).toLocaleTimeString()} · format ${r.format || "?"} · created: ${(r.created || []).join(", ") || "none"} · renamed: ${(r.renamed || []).join(", ") || "none"} · ` +
+    `colored: ${(r.colored || []).join(", ") || "none"} · visibility: ${(r.visibility || []).join(", ") || "none"}` +
+    ((r.errors || []).length ? `\nErrors:\n• ${r.errors.join("\n• ")}` : "")
+  );
+}
+async function setupChecks() {
+  const rep = await send("lastToolReport").catch(() => null);
+  if (rep) {
+    $("toolResult").textContent = describeReport(rep);
+    $("toolResult").style.whiteSpace = "pre-wrap";
+  }
+  const gm = await send("gmailTab").catch(() => false);
+  $("chkGmail").className = `check ${gm ? "ok" : "bad"}`;
+  $("chkGmail").querySelector("span:not(.ic)").textContent = gm ? "Open and reachable." : "No Gmail tab open. Open mail.google.com.";
+  const s = await send("getSettings");
+  const r = await send("aiTest").catch((e) => ({ ok: false, error: e.message }));
+  $("chkOllama").className = `check ${r.ok ? "ok" : "bad"}`;
+  $("chkOllama").querySelector("span:not(.ic)").textContent = r.ok ? `${r.model} answered in ${r.ms} ms.` : `${r.error}`;
+  if (gm) {
+    try {
+      const labels = await send("listLabels");
+      const want = (s.ai.suggestedLabels || []).map((l) => l.toLowerCase());
+      const have = labels.map((l) => l.replace(/^\[|\]$/g, "").toLowerCase());
+      const missing = want.filter((w) => !have.includes(w));
+      $("chkLabels").className = `check ${missing.length ? "bad" : "ok"}`;
+      $("chkLabels").querySelector("span:not(.ic)").textContent = missing.length ? `Missing: ${missing.join(", ")}` : `All ${want.length} present (${labels.length} labels total).`;
+    } catch (e) {
+      $("chkLabels").querySelector("span:not(.ic)").textContent = "Could not read labels (reload the Gmail tab?).";
+    }
+  }
+}
+$("chkOllamaBtn").onclick = () => $("aiTest").click();
+$("chkLabelsBtn").onclick = () => $("toolOrganizeLabels").click();
+
+load().then(setupChecks);

@@ -1,8 +1,8 @@
 {
-  "name": "gmail-inbox-cleaner",
+  "name": "inboxbroom",
   "version": "1.0.0",
   "private": true,
-  "description": "Firefox extension that cleans junk out of Gmail by driving the web UI, with optional local-LLM triage via Ollama.",
+  "description": "Inbox Broom: Firefox extension that sweeps junk out of Gmail by driving the web UI, with optional local-LLM triage via Ollama.",
   "scripts": {
     "lint": "web-ext lint --source-dir . --ignore-files 'contrib/**' 'scripts/**' '*.md' 'package*.json' '.github/**'",
     "build": "web-ext build --source-dir . --ignore-files 'contrib/**' 'scripts/**' '*.md' 'package*.json' '.github/**' --overwrite-dest",

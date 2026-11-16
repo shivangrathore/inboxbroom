@@ -1,4 +1,4 @@
-/* Gmail Inbox Cleaner – content script
+/* Inbox Broom – content script
  *
  * Drives the Gmail web UI directly. Rule modes:
  *   query – bulk: search, select all matching, act (one shot for thousands)
@@ -272,10 +272,13 @@
   }
 
   const normLabel = (l) => String(l || "").trim().replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").toLowerCase();
-  function formatFor(labelFormat, existing) {
+  function formatFor(labelFormat, existing, ours = []) {
     if (labelFormat && labelFormat !== "auto" && labelFormat.includes("{name}")) return labelFormat;
-    const br = existing.filter((l) => /^\[.+\]$/.test(l)).length;
-    return existing.length && br * 2 >= existing.length ? "[{name}]" : "{name}";
+    // judge the user's own style from labels that are NOT our taxonomy (those may have been created plain by us)
+    const mine = new Set(ours.map(normLabel));
+    const user = existing.filter((l) => !mine.has(normLabel(l)) || /^\[.+\]$/.test(l));
+    const br = user.filter((l) => /^\[.+\]$/.test(l)).length;
+    return user.length && br * 2 >= user.length ? "[{name}]" : "{name}";
   }
 
   async function createLabels({ names, labelFormat }) {
@@ -285,7 +288,7 @@
       await sleep(1200);
     }
     const existingList = await existingLabels();
-    const fmt = formatFor(labelFormat, existingList);
+    const fmt = formatFor(labelFormat, existingList, names);
     const existing = new Map(existingList.map((l) => [normLabel(l), l]));
     const out = { created: [], existing: [], failed: [], format: fmt };
     for (const name of names) {
@@ -313,11 +316,10 @@
 
   // ---- Settings → Labels page: rename + visibility
   function settingsLabelRow(name) {
-    const rows = qa("tr").filter((tr) => tr.querySelector("td"));
-    return rows.find((tr) => {
-      const first = txt(tr.querySelector("td"));
-      return first === name || first.startsWith(name + " ") || normLabel(first.split(/\s{2,}|\n/)[0]) === normLabel(name);
-    }) || rows.find((tr) => txt(tr).startsWith(name));
+    const rows = qa("tr").filter((tr) => tr.querySelector("td") && rowLink(tr, /^(show|hide|show if unread|edit|remove)$/i));
+    const exact = rows.find((tr) => [...tr.querySelectorAll("td, span, div")].some((el) => txt(el) === name && el.children.length <= 1));
+    if (exact) return exact;
+    return rows.find((tr) => txt(tr.querySelector("td")).split(/\s{2,}|\n/)[0].trim() === name) || rows.find((tr) => txt(tr).startsWith(name + " ")) || null;
   }
   function rowLink(row, re) {
     return qa('span[role="link"], a, button, div[role="button"]', row).find((el) => re.test(txt(el))) || null;
@@ -327,7 +329,11 @@
       location.hash = "#settings/labels";
       await sleep(1500);
     }
-    await waitFor(() => qa("tr").some((tr) => rowLink(tr, /^(show|hide|show if unread)$/i)), { timeout: 10000 });
+    const ok = await waitFor(() => qa("tr").some((tr) => rowLink(tr, /^(show|hide|show if unread)$/i)), { timeout: 10000 });
+    if (!ok) {
+      const links = qa('span[role="link"], a').map(txt).filter(Boolean).slice(0, 12);
+      throw new Error(`Settings → Labels did not load (hash=${location.hash}, rows=${qa("tr").length}, links=${links.join("/")})`);
+    }
   }
   async function renameLabel(from, to) {
     await openLabelSettings();
@@ -913,7 +919,7 @@
       return out;
     } catch (e) {
       progress(`Error: ${e.message}`, "error");
-      console.error("[Gmail Inbox Cleaner]", e, diag());
+      console.error("[Inbox Broom]", e, diag());
       hideBanner(10000);
       throw e;
     } finally {
@@ -1025,7 +1031,7 @@
       return { total, summary, unsubscribe: unsub, stopped: stopRequested };
     } catch (e) {
       progress(`Error: ${e.message}`, "error");
-      console.error("[Gmail Inbox Cleaner]", e, diag());
+      console.error("[Inbox Broom]", e, diag());
       hideBanner(10000);
       throw e;
     } finally {

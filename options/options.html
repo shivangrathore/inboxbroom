@@ -2,19 +2,26 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Gmail Inbox Cleaner – Settings</title>
+  <title>Inbox Broom – Settings</title>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <main>
-    <h1>Gmail Inbox Cleaner – Settings</h1>
-    <p class="muted">
-      Drives the Gmail web page like you would by hand: runs each search, selects results, applies the action.
-      No API keys. Keep a Gmail tab open; the run is visible there.
-    </p>
+    <div class="top"><img src="../icons/icon-48.png" width="36" height="36" alt="" /><h1>Inbox Broom</h1></div>
+    <p class="lead">Sweeps junk out of Gmail by driving the Gmail page like you would by hand. No API keys, nothing leaves your machine.
+      Flow: <b>Preview</b> → review page → <b>Confirm</b>.</p>
 
     <section>
-      <h2>Rules</h2>
+      <h2><span class="n">0</span>Setup check</h2>
+      <div class="checks">
+        <div class="check" id="chkGmail"><span class="ic"></span><div><b>Gmail tab</b><span>Keep one open; the extension works inside it.</span></div></div>
+        <div class="check" id="chkOllama"><span class="ic"></span><div><b>Local AI (Ollama)</b><span>Optional. Without it only the bulk rules run.</span><br /><button id="chkOllamaBtn" class="small">Test</button></div></div>
+        <div class="check" id="chkLabels"><span class="ic"></span><div><b>Labels in Gmail</b><span>Taxonomy labels for kept mail.</span><br /><button id="chkLabelsBtn" class="small">Organize now</button></div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="n">1</span>Rules</h2>
       <p class="muted">
         <b>Bulk</b> rules act on everything the <a href="https://support.google.com/mail/answer/7190" target="_blank">Gmail search</a> returns.
         <b>AI</b> rules run the search, score each mail with your local model and act only on junk.
@@ -40,13 +47,13 @@
     </section>
 
     <section>
-      <h2>Always keep (allowlist)</h2>
+      <h2><span class="n">2</span>Always keep (allowlist)</h2>
       <p class="muted">One sender or domain per line. Appended to every rule as <code>-from:(…)</code>.</p>
       <textarea id="allowlist" rows="4" placeholder="boss@company.com&#10;mybank.com"></textarea>
     </section>
 
     <section>
-      <h2>Local AI (Ollama)</h2>
+      <h2><span class="n">3</span>Local AI (Ollama)</h2>
       <p class="muted">Runs fully on your machine. Each mail gets a junk score 0–100 from sender, subject and preview; at or above the threshold it is cleaned.</p>
       <div class="grid">
         <label>Endpoint <input id="aiEndpoint" type="text" spellcheck="false" placeholder="http://127.0.0.1:11434" /></label>
@@ -93,7 +100,7 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
     </section>
 
     <section>
-      <h2>Expire labeled mail</h2>
+      <h2><span class="n">5</span>Inbox expiry</h2>
       <p class="muted">The inbox is a queue, the archive is forever. Anything still <em>in the inbox</em> with a label older than its lifetime is moved to Trash on the next run (shown in the preview first). <code>*</code> = inbox mail without any of these labels. Archived mail, starred and important mail are never touched. Blank or 0 = keep in inbox forever.</p>
       <label class="inline"><input id="retentionEnabled" type="checkbox" /> Enabled</label>
       <table id="retention"><thead><tr><th>Label</th><th>Delete after (days)</th><th></th></tr></thead><tbody></tbody></table>
@@ -101,7 +108,7 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
     </section>
 
     <section>
-      <h2>Tools</h2>
+      <h2><span class="n">4</span>Labels &amp; tools</h2>
       <p class="muted">Needs an open Gmail tab. Actions run inside it.</p>
       <label>Label name style <span class="muted">— <code>auto</code> copies your existing labels (e.g. <code>[Finance]</code> → <code>[{name}]</code>); or set <code>{name}</code>, <code>[{name}]</code>, <code>@{name}</code>…</span>
         <input id="labelFormat" type="text" spellcheck="false" placeholder="auto" style="width:12em" /></label>
@@ -119,7 +126,7 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
     </section>
 
     <section>
-      <h2>Behaviour</h2>
+      <h2><span class="n">6</span>Behaviour</h2>
       <label class="inline"><input id="returnToInbox" type="checkbox" /> Return to where I was in Gmail after a run</label>
       <br />
       <label class="inline"><input id="autoClean" type="checkbox" /> Auto-clean</label>
@@ -127,10 +134,10 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
       <p class="muted">Only runs if a Gmail tab is already open. Red “!” on the toolbar icon = skipped/failed.</p>
     </section>
 
-    <div class="bar">
-      <button id="save" class="primary">Save</button>
+    <div class="bar"><div class="inner">
+      <button id="save" class="primary">Save settings</button>
       <span id="saved" class="muted"></span>
-    </div>
+    </div></div>
   </main>
   <script src="options.js"></script>
 </body>

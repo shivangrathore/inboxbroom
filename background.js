@@ -1,4 +1,4 @@
-/* Gmail Inbox Cleaner – background
+/* Inbox Broom – background
  * Settings, Gmail-tab plumbing, auto-clean alarm, local-LLM (Ollama) classification,
  * sender memory, AI log.
  * All DOM work happens in content.js inside the Gmail tab.
@@ -702,7 +702,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
       browser.notifications.create({
         type: "basic",
         iconUrl: browser.runtime.getURL("icons/icon-96.png"),
-        title: "Gmail Inbox Cleaner",
+        title: "Inbox Broom",
         message: `Auto-clean handled ${res.total} conversation(s).`,
       });
     }
@@ -710,7 +710,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
     browser.browserAction.setBadgeText({ text: "!" });
     browser.browserAction.setBadgeBackgroundColor({ color: "#c62828" });
     browser.browserAction.setTitle({
-      title: e.message === "NO_GMAIL_TAB" ? "Gmail Inbox Cleaner – auto-clean skipped: no Gmail tab open" : `Gmail Inbox Cleaner – auto-clean failed: ${e.message}`,
+      title: e.message === "NO_GMAIL_TAB" ? "Inbox Broom – auto-clean skipped: no Gmail tab open" : `Inbox Broom – auto-clean failed: ${e.message}`,
     });
   }
 });
@@ -831,8 +831,11 @@ browser.runtime.onMessage.addListener(async (msg) => {
         style: s.labelStyle || {},
       });
       if (res?.labels) await browser.storage.local.set({ knownLabels: res.labels });
+      await browser.storage.local.set({ lastToolReport: { at: Date.now(), tool: msg.type, ...res } });
       return res;
     }
+    case "lastToolReport":
+      return getStore("lastToolReport", null);
     case "listLabels": {
       const tab = await findGmailTab();
       if (!tab) throw new Error("NO_GMAIL_TAB");
