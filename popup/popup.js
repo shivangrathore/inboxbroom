@@ -299,8 +299,8 @@ $("createLabels").onclick = async () => {
   setBusy(true);
   setStatus("Creating labels… watch the Gmail tab.", "running");
   try {
-    const r = await send("createLabels");
-    setStatus(`Labels: ${r.created.length} created, ${r.existing.length} existed${r.failed.length ? `, ${r.failed.length} failed` : ""}.`, r.failed.length ? "error" : "ok");
+    const r = await send("organizeLabels");
+    setStatus(`Labels: ${r.created.length} created, ${r.renamed.length} renamed, ${r.colored.length} colored${r.errors.length ? `, ${r.errors.length} error(s), see Settings → Tools` : ""}.`, r.errors.length ? "error" : "ok");
   } catch (e) {
     setStatus(friendlyError(e), "error");
   } finally {

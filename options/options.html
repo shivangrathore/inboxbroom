@@ -103,13 +103,19 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
     <section>
       <h2>Tools</h2>
       <p class="muted">Needs an open Gmail tab. Actions run inside it.</p>
+      <label>Label name style <span class="muted">— <code>auto</code> copies your existing labels (e.g. <code>[Finance]</code> → <code>[{name}]</code>); or set <code>{name}</code>, <code>[{name}]</code>, <code>@{name}</code>…</span>
+        <input id="labelFormat" type="text" spellcheck="false" placeholder="auto" style="width:12em" /></label>
+      <table id="labelStyle"><thead><tr><th>Label</th><th>Color</th><th>In sidebar</th></tr></thead><tbody></tbody></table>
       <div class="row">
         <button id="toolListLabels" class="small">Show my Gmail labels</button>
-        <button id="toolCreateLabels" class="small">Create my labels in Gmail</button>
+        <button id="toolCreateLabels" class="small">Create missing labels</button>
+        <button id="toolOrganizeLabels" class="small">Organize labels (create + rename + color + pin)</button>
         <span id="toolResult" class="muted"></span>
       </div>
-      <p class="muted">"Create my labels" adds the suggested labels and every label in the expiry table that doesn't exist yet
-        (Gmail → <em>Create new label</em>), so they show up in Gmail's sidebar and the AI can use them. Existing ones are left alone.</p>
+      <p class="muted"><b>Organize labels</b> creates missing ones (Gmail → <em>Create new label</em>), renames plain ones to your style
+        (Settings → Labels → edit), sets <em>In label list</em> show / hide / show-if-unread, and picks the color from the label's ⋮ menu.
+        Existing labels with the same core name (e.g. <code>[Finance]</code> for Finance) are reused. Gmail sorts the sidebar alphabetically;
+        "pin" here means <em>show</em>, the rest sit under More.</p>
     </section>
 
     <section>

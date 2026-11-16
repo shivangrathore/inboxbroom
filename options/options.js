@@ -48,6 +48,28 @@ function readRules() {
     .filter((r) => r.query);
 }
 
+const GMAIL_COLOR_NAMES = ["", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray", "brown"];
+function styleRow(label, st = {}) {
+  const tr = document.createElement("tr");
+  tr.dataset.label = label;
+  tr.innerHTML = `<td></td><td><select class="sc"></select></td><td><select class="sv"><option value="">leave</option><option value="show">show (pinned)</option><option value="unread">show if unread</option><option value="hide">hide (under More)</option></select></td>`;
+  tr.querySelector("td").textContent = label;
+  const sc = tr.querySelector(".sc");
+  for (const c of GMAIL_COLOR_NAMES) sc.appendChild(new Option(c || "leave", c));
+  sc.value = st.color || "";
+  tr.querySelector(".sv").value = st.show || "";
+  return tr;
+}
+function readLabelStyle() {
+  const out = {};
+  for (const tr of document.querySelectorAll("#labelStyle tbody tr")) {
+    const color = tr.querySelector(".sc").value;
+    const show = tr.querySelector(".sv").value;
+    if (color || show) out[tr.dataset.label] = { ...(color ? { color } : {}), ...(show ? { show } : {}) };
+  }
+  return out;
+}
+
 function retentionRow(label = "", days = "") {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="small danger del">✕</button></td>`;
@@ -72,6 +94,10 @@ async function load() {
   tbody.innerHTML = "";
   for (const r of s.rules) tbody.appendChild(ruleRow(r));
   $("allowlist").value = (s.allowlist || []).join("\n");
+  $("labelFormat").value = s.labelFormat || "auto";
+  const sb = document.querySelector("#labelStyle tbody");
+  sb.innerHTML = "";
+  for (const l of [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.labelStyle || {})])]) sb.appendChild(styleRow(l, s.labelStyle?.[l]));
   $("retentionEnabled").checked = s.retentionEnabled !== false;
   const rb = document.querySelector("#retention tbody");
   rb.innerHTML = "";
@@ -121,6 +147,8 @@ async function save() {
       rules: readRules(),
       allowlist: $("allowlist").value.split("\n").map((l) => l.trim()).filter(Boolean),
       returnToInbox: $("returnToInbox").checked,
+      labelFormat: $("labelFormat").value.trim() || "auto",
+      labelStyle: readLabelStyle(),
       retentionEnabled: $("retentionEnabled").checked,
       retention: readRetention(),
       autoClean: $("autoClean").checked,
@@ -166,6 +194,19 @@ $("toolCreateLabels").onclick = async () => {
     $("toolResult").textContent =
       `Created: ${r.created.join(", ") || "none"}. Already existed: ${r.existing.join(", ") || "none"}.` +
       (r.failed.length ? ` Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}` : "");
+  } catch (e) {
+    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+  }
+};
+$("toolOrganizeLabels").onclick = async () => {
+  await save();
+  $("toolResult").textContent = "Organizing… watch the Gmail tab (it will visit Settings → Labels).";
+  try {
+    const r = await send("organizeLabels");
+    $("toolResult").textContent =
+      `Format ${r.format}. Created: ${r.created.join(", ") || "none"}. Renamed: ${r.renamed.join(", ") || "none"}. ` +
+      `Colored: ${r.colored.join(", ") || "none"}. Visibility: ${r.visibility.join(", ") || "none"}.` +
+      (r.errors.length ? ` Errors: ${r.errors.join(" | ")}` : "");
   } catch (e) {
     $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
   }

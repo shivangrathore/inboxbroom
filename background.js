@@ -117,6 +117,20 @@ const DEFAULT_SETTINGS = {
     suggestedLabels: ["Finance", "Orders", "Support", "Security", "Dev", "Work", "Travel", "Government", "Personal"], // created on first use if missing
     ignoreLabels: ["Notes", "Cleaned"], // existing labels the AI must not use
   },
+  // label style: "auto" copies the style of your existing labels ("[Finance]" → "[{name}]"), or set "{name}" / "[{name}]" / "@{name}" …
+  labelFormat: "auto",
+  // per taxonomy label: Gmail color name and sidebar visibility (show | hide | unread = show if unread)
+  labelStyle: {
+    Finance: { color: "yellow", show: "show" },
+    Security: { color: "red", show: "show" },
+    Orders: { color: "orange", show: "show" },
+    Work: { color: "purple", show: "show" },
+    Dev: { color: "blue", show: "unread" },
+    Support: { color: "green", show: "unread" },
+    Travel: { color: "blue", show: "unread" },
+    Government: { color: "gray", show: "unread" },
+    Personal: { color: "pink", show: "unread" },
+  },
   // Inbox expiry in days per label, "*" = anything else in the inbox. Inbox-only: archived mail is never touched,
   // starred/important never touched. 0 / missing = keep in inbox forever.
   retention: { Security: 7, Orders: 30, Dev: 30, Support: 45, Work: 60, Personal: 60, Finance: 90, Government: 90, Travel: 120, "*": 90 },
@@ -125,11 +139,29 @@ const DEFAULT_SETTINGS = {
   defaultsVersion: DEFAULTS_VERSION,
 };
 
-const labelQueryName = (l) => l.trim().replace(/\s+/g, "-");
+const normLabel = (l) => String(l || "").trim().replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").toLowerCase();
+function detectFormat(existing) {
+  const user = (existing || []).filter(Boolean);
+  if (!user.length) return "{name}";
+  const br = user.filter((l) => /^\[.+\]$/.test(l)).length;
+  return br * 2 >= user.length ? "[{name}]" : "{name}";
+}
+function labelFormatFor(settings, existing) {
+  const f = settings.labelFormat && settings.labelFormat !== "auto" ? settings.labelFormat : detectFormat(existing);
+  return f.includes("{name}") ? f : "{name}";
+}
+/** real Gmail label name for a taxonomy name: an existing label with the same core, else the formatted name */
+function resolveLabel(name, existing, fmt) {
+  const hit = (existing || []).find((l) => normLabel(l) === normLabel(name));
+  return hit || fmt.replace("{name}", name);
+}
+// Gmail search: quote names that contain brackets/spaces
+const labelQueryName = (l) => (/[\s\[\]@#!]/.test(l.trim()) ? `"${l.trim()}"` : l.trim());
 
-function retentionRules(settings) {
+function retentionRules(settings, existing = []) {
   if (!settings.retentionEnabled) return [];
-  const entries = Object.entries(settings.retention || {}).filter(([, d]) => Number(d) > 0);
+  const fmt = labelFormatFor(settings, existing);
+  const entries = Object.entries(settings.retention || {}).filter(([, d]) => Number(d) > 0).map(([l, d]) => [l === "*" ? "*" : resolveLabel(l, existing, fmt), d]);
   const labeled = entries.filter(([l]) => l !== "*");
   const rules = labeled.map(([label, d]) => ({
     id: `retention:${label}`,
@@ -253,9 +285,11 @@ async function runInGmail(mode, { focus = false, create = false, ruleIds = null,
   }
   let rules = settings.rules.filter((r) => r.enabled);
   if (ruleIds) rules = settings.rules.filter((r) => ruleIds.includes(r.id));
-  if (!ruleIds || ruleIds.includes("retention")) rules = [...rules, ...retentionRules(settings)];
+  const known = (await getStore("knownLabels", []));
+  if (!ruleIds || ruleIds.includes("retention")) rules = [...rules, ...retentionRules(settings, known)];
   const cache = await getAiCache();
-  const excludeLabels = [...new Set([...(settings.ai.suggestedLabels || []), ...Object.values(cache).map((c) => c.label).filter(Boolean)])];
+  const fmt = labelFormatFor(settings, known);
+  const excludeLabels = [...new Set([...(settings.ai.suggestedLabels || []).map((l) => resolveLabel(l, known, fmt)), ...Object.values(cache).map((c) => c.label).filter(Boolean)])];
   let lastErr;
   for (let i = 0; i < 30; i++) {
     try {
@@ -450,11 +484,12 @@ async function modelScores(ai, batch, rule, labels = []) {
   }
 }
 
-function allowedLabels(ai, existing) {
-  const ignore = new Set((ai.ignoreLabels || []).map((x) => x.toLowerCase()));
+function allowedLabels(ai, existing, settings) {
+  const ignore = new Set((ai.ignoreLabels || []).map(normLabel));
+  const fmt = labelFormatFor(settings || { labelFormat: "auto" }, existing);
   const set = new Map();
-  for (const l of existing || []) if (!ignore.has(l.toLowerCase()) && !/^cleaned/i.test(l)) set.set(l.toLowerCase(), l);
-  for (const l of ai.suggestedLabels || []) if (!set.has(l.toLowerCase()) && !ignore.has(l.toLowerCase())) set.set(l.toLowerCase(), l);
+  for (const l of existing || []) if (!ignore.has(normLabel(l)) && !/^cleaned/i.test(l)) set.set(normLabel(l), l);
+  for (const l of ai.suggestedLabels || []) if (!set.has(normLabel(l)) && !ignore.has(normLabel(l))) set.set(normLabel(l), fmt.replace("{name}", l));
   return [...set.values()].slice(0, 60);
 }
 
@@ -484,9 +519,11 @@ async function modelScoresOnce(ai, batch, rule, labels) {
 }
 
 async function aiClassify(items, rule, existingLabels = []) {
-  const { ai } = await getSettings();
+  const settingsAll = await getSettings();
+  const { ai } = settingsAll;
   const threshold = Number(ai.threshold) || 60;
-  const labels = ai.labeling ? allowedLabels(ai, existingLabels) : [];
+  const labels = ai.labeling ? allowedLabels(ai, existingLabels, settingsAll) : [];
+  if (existingLabels?.length) await browser.storage.local.set({ knownLabels: existingLabels });
   const stats = await getSenderStats();
   const out = [];
   const toModel = [];
@@ -731,6 +768,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "run": {
       const res = await runInGmail(msg.mode, { focus: true, create: true, ruleIds: msg.ruleIds || null, rescore: !!msg.rescore });
       if (msg.mode === "scan") {
+        if (Array.isArray(res.labels) && res.labels.length) await browser.storage.local.set({ knownLabels: res.labels });
         let subscriptions = res.subscriptions || null;
         if (Array.isArray(subscriptions) && subscriptions.length) {
           await browser.storage.local.set({ progress: { text: `AI reviewing ${subscriptions.length} subscriptions…`, at: Date.now(), running: true } });
@@ -779,13 +817,21 @@ browser.runtime.onMessage.addListener(async (msg) => {
     }
     case "apply":
       return applyPlan(msg.plan);
-    case "createLabels": {
+    case "createLabels":
+    case "organizeLabels": {
       const s = await getSettings();
       const tab = await findGmailTab({ create: true });
       if (!tab) throw new Error("NO_GMAIL_TAB");
       await browser.tabs.update(tab.id, { active: true });
-      const names = msg.names?.length ? msg.names : [...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*")];
-      return browser.tabs.sendMessage(tab.id, { type: "createLabels", names: [...new Set(names)] });
+      const names = [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*"), ...Object.keys(s.labelStyle || {})])];
+      const res = await browser.tabs.sendMessage(tab.id, {
+        type: msg.type,
+        names,
+        labelFormat: s.labelFormat || "auto",
+        style: s.labelStyle || {},
+      });
+      if (res?.labels) await browser.storage.local.set({ knownLabels: res.labels });
+      return res;
     }
     case "listLabels": {
       const tab = await findGmailTab();

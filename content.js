@@ -271,33 +271,200 @@
     return true;
   }
 
-  async function createLabels(names) {
+  const normLabel = (l) => String(l || "").trim().replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").toLowerCase();
+  function formatFor(labelFormat, existing) {
+    if (labelFormat && labelFormat !== "auto" && labelFormat.includes("{name}")) return labelFormat;
+    const br = existing.filter((l) => /^\[.+\]$/.test(l)).length;
+    return existing.length && br * 2 >= existing.length ? "[{name}]" : "{name}";
+  }
+
+  async function createLabels({ names, labelFormat }) {
     const startHash = location.hash;
     if (!location.hash.startsWith("#inbox")) {
       location.hash = "#inbox";
       await sleep(1200);
     }
-    const existing = new Set((await existingLabels()).map((l) => l.toLowerCase()));
-    const out = { created: [], existing: [], failed: [] };
+    const existingList = await existingLabels();
+    const fmt = formatFor(labelFormat, existingList);
+    const existing = new Map(existingList.map((l) => [normLabel(l), l]));
+    const out = { created: [], existing: [], failed: [], format: fmt };
     for (const name of names) {
       if (stopRequested) break;
-      if (existing.has(name.toLowerCase())) {
-        out.existing.push(name);
+      if (existing.has(normLabel(name))) {
+        out.existing.push(existing.get(normLabel(name)));
         continue;
       }
-      progress(`Creating label "${name}"…`);
+      const real = fmt.replace("{name}", name);
+      progress(`Creating label "${real}"…`);
       try {
-        await createLabel(name);
-        out.created.push(name);
-        existing.add(name.toLowerCase());
+        await createLabel(real);
+        out.created.push(real);
+        existing.set(normLabel(real), real);
       } catch (e) {
-        out.failed.push({ name, error: e.message });
+        out.failed.push({ name: real, error: e.message });
       }
     }
+    out.labels = [...existing.values()];
     progress(`Labels: ${out.created.length} created, ${out.existing.length} already there${out.failed.length ? `, ${out.failed.length} failed` : ""}.`, out.failed.length ? "error" : "ok");
     hideBanner(5000);
     location.hash = startHash && !startHash.startsWith("#settings") ? startHash : "#inbox";
     return out;
+  }
+
+  // ---- Settings → Labels page: rename + visibility
+  function settingsLabelRow(name) {
+    const rows = qa("tr").filter((tr) => tr.querySelector("td"));
+    return rows.find((tr) => {
+      const first = txt(tr.querySelector("td"));
+      return first === name || first.startsWith(name + " ") || normLabel(first.split(/\s{2,}|\n/)[0]) === normLabel(name);
+    }) || rows.find((tr) => txt(tr).startsWith(name));
+  }
+  function rowLink(row, re) {
+    return qa('span[role="link"], a, button, div[role="button"]', row).find((el) => re.test(txt(el))) || null;
+  }
+  async function openLabelSettings() {
+    if (!location.hash.startsWith("#settings/labels")) {
+      location.hash = "#settings/labels";
+      await sleep(1500);
+    }
+    await waitFor(() => qa("tr").some((tr) => rowLink(tr, /^(show|hide|show if unread)$/i)), { timeout: 10000 });
+  }
+  async function renameLabel(from, to) {
+    await openLabelSettings();
+    const row = settingsLabelRow(from);
+    if (!row) throw new Error(`label "${from}" not found in Settings → Labels`);
+    const edit = rowLink(row, /^edit$/i);
+    if (!edit) throw new Error(`no edit link for "${from}"`);
+    click(edit);
+    const dlg = await waitFor(dialog, { timeout: 5000 });
+    if (!dlg) throw new Error("edit dialog did not open");
+    const input = q("input", dlg);
+    if (!input) throw new Error("name field not found");
+    typeInto(input, to);
+    await sleep(200);
+    const save = dialogButton(/^(save|update|ok)$/i);
+    if (!save) throw new Error("Save button not found");
+    click(save);
+    await sleep(900);
+  }
+  async function setLabelVisibility(name, mode) {
+    await openLabelSettings();
+    const row = settingsLabelRow(name);
+    if (!row) throw new Error(`label "${name}" not found in Settings → Labels`);
+    const re = mode === "hide" ? /^hide$/i : mode === "unread" ? /^show if unread$/i : /^show$/i;
+    // the first group of links is "In label list", the second "In message list"; take the first match
+    const link = rowLink(row, re);
+    if (!link) return false; // already in that state (Gmail renders the active one as plain text)
+    click(link);
+    await sleep(500);
+    return true;
+  }
+
+  // ---- sidebar ⋮ menu: color
+  const GMAIL_COLORS = {
+    red: [251, 76, 47], orange: [255, 173, 71], yellow: [250, 209, 101], green: [22, 167, 102], teal: [67, 214, 146],
+    blue: [74, 134, 232], purple: [164, 121, 226], pink: [246, 145, 179], gray: [204, 204, 204], brown: [172, 46, 0],
+  };
+  function rgbOf(el) {
+    const m = (el.getAttribute("style") || getComputedStyle(el).backgroundColor || "").match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  }
+  function navLabelRow(name) {
+    const a = qa('a[href*="#label/"]').find((x) => {
+      const m = x.getAttribute("href").match(/#label\/([^?&]+)/);
+      let n = "";
+      try { n = decodeURIComponent(m?.[1] || "").replace(/\+/g, " "); } catch {}
+      return n === name || txt(x) === name;
+    });
+    return a ? a.closest('div[role="treeitem"], div.aim, tr, div') : null;
+  }
+  async function setLabelColor(name, colorName) {
+    const target = GMAIL_COLORS[colorName];
+    if (!target) return false;
+    if (!location.hash.startsWith("#inbox")) {
+      location.hash = "#inbox";
+      await sleep(1200);
+    }
+    const row = navLabelRow(name);
+    if (!row) throw new Error(`label "${name}" not visible in the sidebar (hidden under More?)`);
+    row.scrollIntoView({ block: "center" });
+    row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await sleep(300);
+    const dots = [...row.querySelectorAll('[role="button"]')].find((b) => /options|more|menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "")) || row.querySelector('[role="button"]:not([aria-label*="Create"])');
+    if (!dots) throw new Error(`no options button on "${name}" row`);
+    click(dots);
+    const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 4000 });
+    if (!menu) throw new Error("label menu did not open");
+    const colorItem = qa('[role="menuitem"]', menu).find((it) => /^label colou?r$/i.test(txt(it)));
+    if (!colorItem) throw new Error('"Label color" item not found');
+    colorItem.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    click(colorItem);
+    await sleep(500);
+    const swatches = qa('div[role="menu"] [role="menuitem"], div[role="menu"] div').filter((el) => !menu.contains(el) && rgbOf(el) && el.getBoundingClientRect().width < 40 && el.getBoundingClientRect().width > 8);
+    if (!swatches.length) throw new Error("color palette not found");
+    let best = null, bd = Infinity;
+    for (const sw of swatches) {
+      const c = rgbOf(sw);
+      const d = Math.hypot(c[0] - target[0], c[1] - target[1], c[2] - target[2]);
+      if (d < bd) { bd = d; best = sw; }
+    }
+    click(best);
+    await sleep(600);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return true;
+  }
+
+  /** Create missing labels, rename to the chosen format, set visibility and color. */
+  async function organizeLabels({ names, labelFormat, style }) {
+    const startHash = location.hash;
+    const created = await createLabels({ names, labelFormat });
+    const fmt = created.format;
+    const report = { ...created, renamed: [], colored: [], visibility: [], errors: created.failed.map((f) => `${f.name}: ${f.error}`) };
+    const current = new Map(created.labels.map((l) => [normLabel(l), l]));
+    for (const name of names) {
+      if (stopRequested) break;
+      let real = current.get(normLabel(name));
+      if (!real) continue;
+      const want = fmt.replace("{name}", name);
+      if (real !== want && normLabel(real) === normLabel(name)) {
+        progress(`Renaming "${real}" → "${want}"…`);
+        try {
+          await renameLabel(real, want);
+          report.renamed.push(`${real} → ${want}`);
+          current.set(normLabel(name), want);
+          real = want;
+        } catch (e) {
+          report.errors.push(`rename ${real}: ${e.message}`);
+        }
+      }
+      const st = style?.[name] || {};
+      if (st.show) {
+        try {
+          await setLabelVisibility(real, st.show);
+          report.visibility.push(`${real}: ${st.show}`);
+        } catch (e) {
+          report.errors.push(`visibility ${real}: ${e.message}`);
+        }
+      }
+    }
+    // colors need the sidebar; "hidden" labels can't be reached there, so do visible ones
+    for (const name of names) {
+      if (stopRequested) break;
+      const real = current.get(normLabel(name));
+      const st = style?.[name] || {};
+      if (!real || !st.color || st.show === "hide") continue;
+      progress(`Coloring "${real}" ${st.color}…`);
+      try {
+        if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color}`);
+      } catch (e) {
+        report.errors.push(`color ${real}: ${e.message}`);
+      }
+    }
+    report.labels = [...current.values()];
+    progress(`Labels organized: ${report.created.length} created, ${report.renamed.length} renamed, ${report.colored.length} colored${report.errors.length ? `, ${report.errors.length} error(s)` : ""}.`, report.errors.length ? "error" : "ok");
+    hideBanner(6000);
+    location.hash = startHash && !startHash.startsWith("#settings") ? startHash : "#inbox";
+    return report;
   }
 
   async function clearSelection() {
@@ -870,7 +1037,8 @@
   browser.runtime.onMessage.addListener((msg) => {
     if (msg.type === "run") return run(msg);
     if (msg.type === "apply") return apply(msg);
-    if (msg.type === "createLabels") return createLabels(msg.names || []);
+    if (msg.type === "createLabels") return createLabels(msg);
+    if (msg.type === "organizeLabels") return organizeLabels(msg);
     if (msg.type === "listLabels") return existingLabels();
     if (msg.type === "stop") {
       stopRequested = true;
