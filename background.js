@@ -5,7 +5,7 @@
  */
 
 const ALARM_NAME = "auto-clean";
-const DEFAULTS_VERSION = 9;
+const DEFAULTS_VERSION = 10;
 
 const DEFAULT_AI_PROMPT = `You triage a personal Gmail inbox for {{persona}}. For each email decide a verdict: "junk" (safe to remove unread) or "keep", plus a confidence 0-100.
 
@@ -243,6 +243,11 @@ async function migrate() {
       return out;
     });
     if (v < 8 && JSON.stringify(s.retention) === JSON.stringify({ Orders: 30, Security: 7, Support: 45, Dev: 30, Travel: 120 })) s.retention = { ...DEFAULT_SETTINGS.retention };
+    if (v < 10) {
+      const stats = await getSenderStats();
+      for (const st of Object.values(stats)) if (st && !st.labelManual) delete st.label;
+      await browser.storage.local.set({ senderStats: stats });
+    }
     const have = new Set(s.rules.map((r) => r.id));
     for (const d of DEFAULT_SETTINGS.rules) if (!have.has(d.id)) s.rules.push({ ...d });
     s.defaultsVersion = DEFAULTS_VERSION;
@@ -526,6 +531,18 @@ async function modelScoresOnce(ai, batch, rule, labels) {
   });
 }
 
+/** Sender's remembered label: manual choice wins; otherwise a label seen ≥2 times that beats every other. */
+function senderLabel(st) {
+  if (!st) return "";
+  if (st.labelManual) return st.labelManual;
+  const counts = st.labels || {};
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) return "";
+  const [top, n] = sorted[0];
+  const second = sorted[1]?.[1] || 0;
+  return n >= 2 && n > second ? top : "";
+}
+
 async function aiClassify(items, rule, existingLabels = []) {
   const settingsAll = await getSettings();
   const { ai } = settingsAll;
@@ -544,16 +561,22 @@ async function aiClassify(items, rule, existingLabels = []) {
         continue;
       }
       if (st.manual === "keep") {
-        out.push({ id: m.id, email: m.email, junk: false, score: 0, reason: "sender marked keep by you", source: "manual", label: st.label || "" });
-        continue;
+        const l = senderLabel(st);
+        if (l || !labels.length) {
+          out.push({ id: m.id, email: m.email, junk: false, score: 0, reason: "sender marked keep by you", source: "manual", label: l });
+          continue;
+        }
       }
       if ((st.junk || 0) >= 2 && !(st.keep > 0)) {
         out.push({ id: m.id, email: m.email, junk: true, score: 95, reason: `sender junk ${st.junk}× before`, source: "sender", label: "" });
         continue;
       }
-      if ((st.keep || 0) >= 3 && !(st.junk > 0) && (st.label || !labels.length)) {
-        out.push({ id: m.id, email: m.email, junk: false, score: 5, reason: `sender kept ${st.keep}× before`, source: "sender", label: st.label || "" });
-        continue;
+      if ((st.keep || 0) >= 3 && !(st.junk > 0)) {
+        const l = senderLabel(st);
+        if (l || !labels.length) {
+          out.push({ id: m.id, email: m.email, junk: false, score: 5, reason: `sender kept ${st.keep}× before`, source: "sender", label: l });
+          continue;
+        }
       }
     }
     toModel.push(m);
@@ -580,7 +603,11 @@ async function aiClassify(items, rule, existingLabels = []) {
       if (ai.senderMemory && m.email) {
         const st = (stats[m.email] = stats[m.email] || { junk: 0, keep: 0 });
         st[junk ? "junk" : "keep"] = (st[junk ? "junk" : "keep"] || 0) + 1;
-        if (!junk && label) st.label = label;
+        if (!junk && label) {
+          st.labels = st.labels || {};
+          st.labels[label] = (st.labels[label] || 0) + 1;
+          st.label = senderLabel(st) || undefined;
+        }
         st.at = Date.now();
       }
     });
@@ -868,7 +895,10 @@ browser.runtime.onMessage.addListener(async (msg) => {
       const stats = await getSenderStats();
       const st = (stats[msg.email] = stats[msg.email] || { junk: 0, keep: 0 });
       if (msg.verdict !== undefined) st.manual = msg.verdict || undefined;
-      if (msg.label !== undefined) st.label = msg.label || undefined;
+      if (msg.label !== undefined) {
+        st.labelManual = msg.label || undefined;
+        st.label = msg.label || senderLabel(st) || undefined;
+      }
       st.at = Date.now();
       await browser.storage.local.set({ senderStats: stats });
       return true;
