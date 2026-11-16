@@ -3,48 +3,62 @@
 <head>
   <meta charset="utf-8" />
   <title>Inbox Broom</title>
+  <link rel="stylesheet" href="../ui/theme.css" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="../icons/icon-48.png" width="22" height="22" alt="" />
-      <h1>Inbox Broom</h1>
-      <span id="dot" class="dot" title="idle"></span>
-    </div>
-    <button id="openOptions" class="icon" title="Settings" aria-label="Settings">
+  <header class="top">
+    <div class="brand"><img src="../icons/icon-48.png" width="22" height="22" alt="" /><h1>Inbox Broom</h1><span id="dot" class="dot" title="idle"></span></div>
+    <button id="openOptions" class="btn icon" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
     </button>
   </header>
 
-  <div id="status" class="status">
-    <div class="bar"><div class="fill"></div></div>
-    <p id="statusText">Ready.</p>
-  </div>
+  <main>
+    <!-- Clean -->
+    <section id="page-clean" class="page">
+      <div class="card status" id="status">
+        <div class="progress hidden" id="bar"><div></div></div>
+        <div class="card-b">
+          <div id="statusText" class="st">Ready.</div>
+          <div id="lastRun" class="small muted"></div>
+        </div>
+      </div>
+      <button id="scan" class="btn primary block big">Preview inbox<span class="sub">scan, then review before anything is deleted</span></button>
+      <button id="stop" class="btn danger block big hidden">Stop<span class="sub">finish the current step and halt</span></button>
+      <div class="two">
+        <button id="review" class="btn outline hidden">Open review</button>
+        <button id="clean" class="btn danger-outline" title="Skip the review and run all rules with current verdicts">Clean now</button>
+      </div>
+      <p class="small muted note">Keep Gmail open in a tab. Deleted mail goes to Trash (30-day undo); archived mail is never touched.</p>
+    </section>
 
-  <div class="cta">
-    <button id="scan" class="btn primary big">
-      <span class="t">Preview</span>
-      <span class="s">scan, then review before anything is deleted</span>
-    </button>
-    <button id="stop" class="btn danger big hidden"><span class="t">Stop</span><span class="s">finish the current step and halt</span></button>
-  </div>
+    <!-- Rules -->
+    <section id="page-rules" class="page hidden">
+      <div class="card"><div class="list" id="rules"></div></div>
+      <button id="editRules" class="btn ghost block">Edit rules in settings</button>
+    </section>
 
-  <div class="row">
-    <button id="review" class="btn hidden">Open review</button>
-    <button id="createLabels" class="btn" title="Create missing labels, rename to your style, set colors and sidebar visibility">Organize labels</button>
-    <button id="clean" class="btn subtle" title="Skip the review and run all rules with current verdicts">Clean now</button>
-  </div>
+    <!-- Labels -->
+    <section id="page-labels" class="page hidden">
+      <div class="card"><div class="card-h"><b>Gmail labels</b><span id="labelCount" class="small muted"></span></div><div class="list" id="labelList"></div></div>
+      <button id="createLabels" class="btn outline block">Organize labels</button>
+      <p class="small muted note">Creates missing labels in your style, sets colors and sidebar visibility. Configure in settings → Labels.</p>
+    </section>
 
-  <div class="section-head"><span>Rules</span><button id="editRules" class="link">edit</button></div>
-  <section class="rules" id="rules"></section>
+    <!-- Activity -->
+    <section id="page-activity" class="page hidden">
+      <div class="card"><div class="list" id="historyList"></div></div>
+    </section>
+  </main>
 
-  <footer>
-    <button id="historyBtn" class="link">Recent runs</button>
-    <span id="historyText" class="muted"></span>
-  </footer>
-  <ul id="historyList" class="history hidden"></ul>
-
+  <nav class="tabs">
+    <button class="tab active" data-page="clean"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.36 2.72l1.42 1.42-5.72 5.71c1.07 1.54 1.22 3.39.32 4.59L9.06 8.12c1.2-.9 3.05-.75 4.59.32l5.71-5.72zM5.93 17.57c-2.01-2.01-3.24-4.41-3.58-6.65l4.88-2.09 7.44 7.44-2.09 4.88c-2.24-.34-4.64-1.57-6.65-3.58z"/></svg>Clean</button>
+    <button class="tab" data-page="rules"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>Rules</button>
+    <button class="tab" data-page="labels"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg>Labels</button>
+    <button class="tab" data-page="activity"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>Activity</button>
+  </nav>
+  <div id="toast" class="toast"></div>
   <script src="popup.js"></script>
 </body>
 </html>

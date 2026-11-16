@@ -14,7 +14,7 @@ function ruleRow(rule = {}) {
     <td><input type="text" class="label" placeholder="Cleaned/Promo" spellcheck="false"></td>
     <td><input type="checkbox" class="inbox" ${rule.inboxOnly !== false ? "checked" : ""}></td>
     <td><input type="number" class="pages" min="1" max="40"></td>
-    <td><button class="small danger del" title="Remove">✕</button></td>`;
+    <td><button class="btn sm danger-outline del" title="Remove">✕</button></td>`;
   tr.querySelector(".type").value = rule.type === "ai" ? "ai" : "query";
   tr.querySelector(".name").value = rule.name || "";
   tr.querySelector(".query").value = rule.query || "";
@@ -72,7 +72,7 @@ function readLabelStyle() {
 
 function retentionRow(label = "", days = "") {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="small danger del">✕</button></td>`;
+  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="btn sm danger-outline del">✕</button></td>`;
   tr.querySelector(".rl").value = label;
   tr.querySelector(".rd").value = days;
   tr.querySelector(".del").onclick = () => tr.remove();
@@ -234,11 +234,11 @@ async function setupChecks() {
   }
   const gm = await send("gmailTab").catch(() => false);
   $("chkGmail").className = `check ${gm ? "ok" : "bad"}`;
-  $("chkGmail").querySelector("span:not(.ic)").textContent = gm ? "Open and reachable." : "No Gmail tab open. Open mail.google.com.";
+  $("chkGmail").querySelector("span:not(.dot)").textContent = gm ? "Open and reachable." : "No Gmail tab open. Open mail.google.com.";
   const s = await send("getSettings");
   const r = await send("aiTest").catch((e) => ({ ok: false, error: e.message }));
   $("chkOllama").className = `check ${r.ok ? "ok" : "bad"}`;
-  $("chkOllama").querySelector("span:not(.ic)").textContent = r.ok ? `${r.model} answered in ${r.ms} ms.` : `${r.error}`;
+  $("chkOllama").querySelector("span:not(.dot)").textContent = r.ok ? `${r.model} answered in ${r.ms} ms.` : `${r.error}`;
   if (gm) {
     try {
       const labels = await send("listLabels");
@@ -246,9 +246,9 @@ async function setupChecks() {
       const have = labels.map((l) => l.replace(/^\[|\]$/g, "").toLowerCase());
       const missing = want.filter((w) => !have.includes(w));
       $("chkLabels").className = `check ${missing.length ? "bad" : "ok"}`;
-      $("chkLabels").querySelector("span:not(.ic)").textContent = missing.length ? `Missing: ${missing.join(", ")}` : `All ${want.length} present (${labels.length} labels total).`;
+      $("chkLabels").querySelector("span:not(.dot)").textContent = missing.length ? `Missing: ${missing.join(", ")}` : `All ${want.length} present (${labels.length} labels total).`;
     } catch (e) {
-      $("chkLabels").querySelector("span:not(.ic)").textContent = "Could not read labels (reload the Gmail tab?).";
+      $("chkLabels").querySelector("span:not(.dot)").textContent = "Could not read labels (reload the Gmail tab?).";
     }
   }
 }
@@ -256,3 +256,13 @@ $("chkOllamaBtn").onclick = () => $("aiTest").click();
 $("chkLabelsBtn").onclick = () => $("toolOrganizeLabels").click();
 
 load().then(setupChecks);
+
+// side nav: highlight the section in view
+(() => {
+  const links = [...document.querySelectorAll("#nav a")];
+  const secs = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + e.target.id));
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  secs.forEach((s) => io.observe(s));
+})();

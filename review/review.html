@@ -3,43 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <title>Inbox Broom – Review</title>
+  <link rel="stylesheet" href="../ui/theme.css" />
   <link rel="stylesheet" href="review.css" />
 </head>
 <body>
-  <header>
-    <div class="brand"><img src="../icons/icon-48.png" width="22" height="22" alt="" /><h1>Review before cleaning</h1><span id="meta" class="muted"></span></div>
+  <header class="top">
+    <div class="brand"><img src="../icons/icon-48.png" width="24" height="24" alt="" /><div><h1>Review before cleaning</h1><div id="meta" class="small muted"></div></div></div>
     <div class="tools">
-      <input id="search" type="search" placeholder="Filter sender / subject / reason…" />
-      <select id="ruleFilter"><option value="">All rules</option></select>
-      <select id="verdictFilter">
-        <option value="">Everything</option>
-        <option value="junk">To delete</option>
-        <option value="keep">To keep</option>
-      </select>
-      <select id="groupBy">
-        <option value="">No grouping</option>
-        <option value="sender">Group by sender</option>
-        <option value="label">Group by label</option>
-      </select>
+      <input id="search" type="search" placeholder="Search sender, subject, reason…" />
+      <select id="groupBy"><option value="">No grouping</option><option value="sender">Group by sender</option><option value="label">Group by label</option></select>
     </div>
   </header>
 
-  <div id="summary" class="summary"></div>
-  <div id="labelPills" class="pills"></div>
+  <div class="filters">
+    <div id="summary" class="chips"></div>
+    <div id="ruleChips" class="chips"></div>
+    <div id="labelChips" class="chips"></div>
+  </div>
 
-  <main id="main"></main>
+  <div class="layout">
+    <main id="main"></main>
+    <aside id="detail" class="detail card hidden"></aside>
+  </div>
 
-  <footer>
-    <div class="left">
-      <div id="progress" class="muted"></div>
-      <div class="hint">Untick to leave alone · click a badge to flip · nothing happens until Confirm · deleted mail sits in Trash 30 days</div>
-    </div>
-    <div class="right">
-      <button id="rescan" class="btn">Preview again</button>
-      <button id="confirm" class="btn primary">Confirm</button>
-    </div>
+  <footer class="bar">
+    <div class="left"><div id="progress" class="small"></div><div class="small muted">Untick to leave alone · click a verdict to flip · nothing happens until Confirm · Trash keeps 30 days</div></div>
+    <div class="right"><button id="rescan" class="btn">Preview again</button><button id="confirm" class="btn danger">Confirm</button></div>
   </footer>
-
+  <div id="toast" class="toast"></div>
   <script src="review.js"></script>
 </body>
 </html>

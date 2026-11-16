@@ -3,142 +3,139 @@
 <head>
   <meta charset="utf-8" />
   <title>Inbox Broom – Settings</title>
+  <link rel="stylesheet" href="../ui/theme.css" />
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
-  <main>
-    <div class="top"><img src="../icons/icon-48.png" width="36" height="36" alt="" /><h1>Inbox Broom</h1></div>
-    <p class="lead">Sweeps junk out of Gmail by driving the Gmail page like you would by hand. No API keys, nothing leaves your machine.
-      Flow: <b>Preview</b> → review page → <b>Confirm</b>.</p>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><img src="../icons/icon-48.png" width="28" height="28" alt="" /><div><b>Inbox Broom</b><div class="small muted">Settings</div></div></div>
+      <nav id="nav">
+        <a href="#setup" class="active">Setup check</a>
+        <a href="#rules">Rules</a>
+        <a href="#allow">Always keep</a>
+        <a href="#ai">Local AI</a>
+        <a href="#labels">Labels</a>
+        <a href="#expiry">Inbox expiry</a>
+        <a href="#behaviour">Behaviour</a>
+        <a href="#about">About</a>
+      </nav>
+    </aside>
 
-    <section>
-      <h2><span class="n">0</span>Setup check</h2>
-      <div class="checks">
-        <div class="check" id="chkGmail"><span class="ic"></span><div><b>Gmail tab</b><span>Keep one open; the extension works inside it.</span></div></div>
-        <div class="check" id="chkOllama"><span class="ic"></span><div><b>Local AI (Ollama)</b><span>Optional. Without it only the bulk rules run.</span><br /><button id="chkOllamaBtn" class="small">Test</button></div></div>
-        <div class="check" id="chkLabels"><span class="ic"></span><div><b>Labels in Gmail</b><span>Taxonomy labels for kept mail.</span><br /><button id="chkLabelsBtn" class="small">Organize now</button></div></div>
-      </div>
-    </section>
+    <main class="content">
+      <section id="setup" class="card">
+        <div class="card-h"><h2>Setup check</h2></div>
+        <div class="card-b">
+          <div class="checks">
+            <div class="check" id="chkGmail"><span class="dot"></span><div><b>Gmail tab</b><span>Keep one open; the extension works inside it.</span></div></div>
+            <div class="check" id="chkOllama"><span class="dot"></span><div><b>Local AI (Ollama)</b><span>Optional. Without it only bulk rules run.</span><br /><button id="chkOllamaBtn" class="btn sm outline">Test</button></div></div>
+            <div class="check" id="chkLabels"><span class="dot"></span><div><b>Labels in Gmail</b><span>Taxonomy labels for kept mail.</span><br /><button id="chkLabelsBtn" class="btn sm outline">Organize now</button></div></div>
+          </div>
+          <p class="help">Flow: <b>Preview</b> → review tab → <b>Confirm</b>. Nothing is deleted without the review unless you use <em>Clean now</em>.</p>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">1</span>Rules</h2>
-      <p class="muted">
-        <b>Bulk</b> rules act on everything the <a href="https://support.google.com/mail/answer/7190" target="_blank">Gmail search</a> returns.
-        <b>AI</b> rules run the search, score each mail with your local model and act only on junk.
-        Actions: <b>Label</b> = apply label + archive (Gmail “Move to”), <b>Archive</b> = out of inbox, <b>Delete</b> = Trash (purged after 30 days).
-        <b>Inbox only</b> forces <code>in:inbox</code> so archived/labeled mail is never touched. Rules run top to bottom.
-      </p>
-      <table id="rules">
-        <thead>
-          <tr><th>On</th><th>Type</th><th>Name</th><th>Query</th><th>Action</th><th>Label</th><th title="Force in:inbox">Inbox only</th><th title="AI rules: pages of ~50 to check per run">Pages</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <button id="addRule" class="small">+ Add rule</button>
-      <details class="muted">
-        <summary>Query ideas</summary>
-        <ul>
-          <li><code>category:updates older_than:14d -from:(bank.com OR gov.in)</code></li>
-          <li><code>from:(noreply@linkedin.com OR info@quora.com)</code></li>
-          <li><code>is:unread older_than:60d -is:important</code></li>
-          <li>Purge what the cleaner labeled, after a month (turn <em>Inbox only</em> off): <code>label:Cleaned older_than:30d</code> → Delete</li>
-        </ul>
-      </details>
-    </section>
+      <section id="rules" class="card">
+        <div class="card-h"><h2>Rules</h2><button id="addRule" class="btn sm outline">+ Add rule</button></div>
+        <div class="card-b">
+          <p class="help"><b>Bulk</b> rules act on everything their <a href="https://support.google.com/mail/answer/7190" target="_blank">Gmail search</a> returns. <b>AI</b> rules run the search, score each mail with your local model and act only on junk; kept mail gets a label.
+            Actions: <b>Delete</b> = Trash (30-day undo), <b>Archive</b>, <b>Label + archive</b> (Gmail “Move to”). <b>Inbox only</b> forces <code>in:inbox</code> so archived mail is never touched. Rules run top to bottom.</p>
+          <div class="tablewrap">
+          <table id="rules">
+            <thead><tr><th>On</th><th>Type</th><th>Name</th><th>Query</th><th>Action</th><th>Label</th><th title="Force in:inbox">Inbox only</th><th title="AI rules: pages of ~50 per run">Pages</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          </div>
+          <details class="help"><summary>Query ideas</summary>
+            <ul>
+              <li><code>category:updates older_than:14d -from:(bank.com OR gov.in)</code></li>
+              <li><code>from:(noreply@linkedin.com OR info@quora.com)</code></li>
+              <li><code>is:unread older_than:60d -is:important</code></li>
+              <li>Purge what the cleaner labeled, after a month (turn <em>Inbox only</em> off): <code>label:Cleaned older_than:30d</code> → Delete</li>
+            </ul>
+          </details>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">2</span>Always keep (allowlist)</h2>
-      <p class="muted">One sender or domain per line. Appended to every rule as <code>-from:(…)</code>.</p>
-      <textarea id="allowlist" rows="4" placeholder="boss@company.com&#10;mybank.com"></textarea>
-    </section>
+      <section id="allow" class="card">
+        <div class="card-h"><h2>Always keep</h2></div>
+        <div class="card-b">
+          <p class="help">One sender or domain per line. Appended to every rule as <code>-from:(…)</code>. “Always keep sender” in the review adds here.</p>
+          <textarea id="allowlist" rows="4" placeholder="boss@company.com&#10;mybank.com"></textarea>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">3</span>Local AI (Ollama)</h2>
-      <p class="muted">Runs fully on your machine. Each mail gets a junk score 0–100 from sender, subject and preview; at or above the threshold it is cleaned.</p>
-      <div class="grid">
-        <label>Endpoint <input id="aiEndpoint" type="text" spellcheck="false" placeholder="http://127.0.0.1:11434" /></label>
-        <label>Model <input id="aiModel" type="text" spellcheck="false" placeholder="qwen3:4b" /></label>
-        <label>Batch <input id="aiBatch" type="number" min="1" max="30" /></label>
-        <label>Unload after <input id="aiKeepAlive" type="text" placeholder="1m" title="Ollama keep_alive: 0 = immediately, 1m, 5m" /></label>
-      </div>
-      <label>Junk threshold <span id="thrVal" class="muted"></span>
-        <input id="aiThreshold" type="range" min="30" max="90" step="5" />
-        <span class="muted">Lower = more aggressive. 60 is a good start; 50 if it still misses junk.</span>
-      </label>
-      <label class="inline"><input id="aiSenderMemory" type="checkbox" /> Sender memory: after 2 consistent junk verdicts a sender is auto-junk (no model call); 3 keeps = auto-keep</label>
-      <br />
-      <label class="inline"><input id="aiHeuristics" type="checkbox" /> Heuristic hints: tell the model about automated addresses / marketing words and nudge the score</label>
-      <label>Who owns this inbox? (shapes what the AI treats as junk)
-        <input id="aiPersona" type="text" placeholder="a software developer / freelancer in India" /></label>
-      <h3>Unsubscribe</h3>
-      <label class="inline"><input id="aiUnsub" type="checkbox" /> On preview, read Gmail's <em>Manage subscriptions</em> page and suggest senders to unsubscribe from (uses the subjects already seen from each sender)</label>
-      <h3>Label grouping</h3>
-      <label class="inline"><input id="aiLabeling" type="checkbox" /> Label kept mail using my existing Gmail labels (read from the Gmail sidebar / Labels menu on each preview)</label>
-      <div class="grid2">
-        <label>Suggested labels, created only if the AI picks one and it doesn't exist (comma separated)
-          <input id="aiSuggested" type="text" spellcheck="false" placeholder="Finance, Orders, Work, Dev, Security, Personal" /></label>
-        <label>Never use these labels (comma separated)
-          <input id="aiIgnore" type="text" spellcheck="false" placeholder="Notes, Cleaned" /></label>
-      </div>
-      <label>Classification prompt (system)
-        <textarea id="aiPrompt" rows="10"></textarea>
-      </label>
-      <div class="row">
-        <button id="aiTest" class="small">Test connection</button>
-        <button id="aiReset" class="small">Reset prompt</button>
-        <button id="aiExport" class="small">Export AI log (JSON)</button>
-        <button id="aiCacheClear" class="small danger">Forget verdicts &amp; sender memory</button>
-        <span id="aiResult" class="muted"></span>
-      </div>
-      <details class="muted">
-        <summary>Ollama setup</summary>
-        <pre>ollama pull qwen3:4b
+      <section id="ai" class="card">
+        <div class="card-h"><h2>Local AI (Ollama)</h2><button id="aiTest" class="btn sm outline">Test connection</button></div>
+        <div class="card-b">
+          <p class="help">Runs fully on your machine. Each mail gets a junk score 0–100 from sender, subject and preview; at or above the threshold it is deleted. <span id="aiResult"></span></p>
+          <div class="grid4">
+            <div class="field"><label>Endpoint</label><input id="aiEndpoint" type="text" spellcheck="false" placeholder="http://127.0.0.1:11434" /></div>
+            <div class="field"><label>Model</label><input id="aiModel" type="text" spellcheck="false" placeholder="qwen3:4b" /></div>
+            <div class="field"><label>Batch</label><input id="aiBatch" type="number" min="1" max="30" /></div>
+            <div class="field"><label>Unload after</label><input id="aiKeepAlive" type="text" placeholder="1m" title="Ollama keep_alive: 0 = immediately, 1m, 5m" /></div>
+          </div>
+          <div class="field"><label>Who owns this inbox? (shapes what counts as junk)</label><input id="aiPersona" type="text" placeholder="a software developer / freelancer in India" /></div>
+          <div class="field"><label>Junk threshold <span id="thrVal" class="muted"></span></label><input id="aiThreshold" type="range" min="30" max="90" step="5" /><div class="help">Lower = more aggressive. 60 is a good start; 50 if it still misses junk.</div></div>
+          <label class="inline"><input id="aiSenderMemory" type="checkbox" /> Sender memory: 2 consistent junk verdicts → sender auto-junk; 3 keeps → auto-keep</label>
+          <label class="inline"><input id="aiHeuristics" type="checkbox" /> Heuristic hints: automated addresses / marketing words nudge the score</label>
+          <label class="inline"><input id="aiUnsub" type="checkbox" /> Read Gmail’s <em>Manage subscriptions</em> on preview and suggest unsubscribes</label>
+          <div class="field"><label>Classification prompt (system)</label><textarea id="aiPrompt" rows="10"></textarea></div>
+          <div class="rowb">
+            <button id="aiReset" class="btn sm">Reset prompt</button>
+            <button id="aiExport" class="btn sm">Export AI log (JSON)</button>
+            <button id="aiCacheClear" class="btn sm danger-outline">Forget verdicts &amp; sender memory</button>
+          </div>
+          <details class="help"><summary>Ollama setup</summary>
+            <pre>ollama pull qwen3:4b
 # allow Firefox extensions to call Ollama:
 OLLAMA_ORIGINS="moz-extension://*" ollama serve
-# or systemd: systemctl edit ollama → [Service] Environment="OLLAMA_ORIGINS=moz-extension://*"</pre>
-      </details>
-    </section>
+# or systemd: systemctl edit ollama → [Service] Environment="OLLAMA_ORIGINS=moz-extension://*"
+# Linux on-demand units: contrib/ollama-on-demand/install.sh in the repo</pre>
+          </details>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">5</span>Inbox expiry</h2>
-      <p class="muted">The inbox is a queue, the archive is forever. Anything still <em>in the inbox</em> with a label older than its lifetime is moved to Trash on the next run (shown in the preview first). <code>*</code> = inbox mail without any of these labels. Archived mail, starred and important mail are never touched. Blank or 0 = keep in inbox forever.</p>
-      <label class="inline"><input id="retentionEnabled" type="checkbox" /> Enabled</label>
-      <table id="retention"><thead><tr><th>Label</th><th>Delete after (days)</th><th></th></tr></thead><tbody></tbody></table>
-      <button id="addRetention" class="small">+ Add label</button>
-    </section>
+      <section id="labels" class="card">
+        <div class="card-h"><h2>Labels</h2><div class="rowb"><button id="toolListLabels" class="btn sm">Show my Gmail labels</button><button id="toolCreateLabels" class="btn sm">Create missing</button><button id="toolOrganizeLabels" class="btn sm primary">Organize labels</button></div></div>
+        <div class="card-b">
+          <label class="inline"><input id="aiLabeling" type="checkbox" /> Label kept mail using my existing Gmail labels (read on each preview)</label>
+          <div class="grid2">
+            <div class="field"><label>Suggested labels (created only when the AI picks one that doesn't exist)</label><input id="aiSuggested" type="text" spellcheck="false" placeholder="Finance, Orders, Work, Dev, Security, Personal" /></div>
+            <div class="field"><label>Never use these labels</label><input id="aiIgnore" type="text" spellcheck="false" placeholder="Notes, Cleaned" /></div>
+          </div>
+          <div class="field"><label>Label name style</label><input id="labelFormat" type="text" spellcheck="false" placeholder="auto" style="max-width: 14em" /><div class="help"><code>auto</code> copies your existing labels (<code>[Finance]</code> → <code>[{name}]</code>); or set <code>{name}</code>, <code>[{name}]</code>, <code>@{name}</code>…</div></div>
+          <div class="tablewrap"><table id="labelStyle"><thead><tr><th>Label</th><th>Color</th><th>In sidebar</th></tr></thead><tbody></tbody></table></div>
+          <p class="help"><b>Organize labels</b> creates missing ones, renames plain ones to your style, sets sidebar visibility and color, all through Gmail's own dialogs. Gmail sorts the sidebar alphabetically; “pin” = <em>show</em>, the rest sit under More.</p>
+          <div id="toolResult" class="help mono"></div>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">4</span>Labels &amp; tools</h2>
-      <p class="muted">Needs an open Gmail tab. Actions run inside it.</p>
-      <label>Label name style <span class="muted">— <code>auto</code> copies your existing labels (e.g. <code>[Finance]</code> → <code>[{name}]</code>); or set <code>{name}</code>, <code>[{name}]</code>, <code>@{name}</code>…</span>
-        <input id="labelFormat" type="text" spellcheck="false" placeholder="auto" style="width:12em" /></label>
-      <table id="labelStyle"><thead><tr><th>Label</th><th>Color</th><th>In sidebar</th></tr></thead><tbody></tbody></table>
-      <div class="row">
-        <button id="toolListLabels" class="small">Show my Gmail labels</button>
-        <button id="toolCreateLabels" class="small">Create missing labels</button>
-        <button id="toolOrganizeLabels" class="small">Organize labels (create + rename + color + pin)</button>
-        <span id="toolResult" class="muted"></span>
-      </div>
-      <p class="muted"><b>Organize labels</b> creates missing ones (Gmail → <em>Create new label</em>), renames plain ones to your style
-        (Settings → Labels → edit), sets <em>In label list</em> show / hide / show-if-unread, and picks the color from the label's ⋮ menu.
-        Existing labels with the same core name (e.g. <code>[Finance]</code> for Finance) are reused. Gmail sorts the sidebar alphabetically;
-        "pin" here means <em>show</em>, the rest sit under More.</p>
-    </section>
+      <section id="expiry" class="card">
+        <div class="card-h"><h2>Inbox expiry</h2><button id="addRetention" class="btn sm outline">+ Add label</button></div>
+        <div class="card-b">
+          <label class="inline"><input id="retentionEnabled" type="checkbox" /> Enabled</label>
+          <p class="help">The inbox is a queue, the archive is forever. Anything still <em>in the inbox</em> with a label older than its lifetime goes to Trash on the next run (shown in the preview first). <code>*</code> = inbox mail without any of these labels. Archived, starred and important mail are never touched. Blank or 0 = keep forever.</p>
+          <div class="tablewrap"><table id="retention"><thead><tr><th>Label</th><th>Delete after (days)</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </section>
 
-    <section>
-      <h2><span class="n">6</span>Behaviour</h2>
-      <label class="inline"><input id="returnToInbox" type="checkbox" /> Return to where I was in Gmail after a run</label>
-      <br />
-      <label class="inline"><input id="autoClean" type="checkbox" /> Auto-clean</label>
-      <label class="inline">every <input id="autoInterval" type="number" min="1" max="720" step="1" style="width:5em" /> hours</label>
-      <p class="muted">Only runs if a Gmail tab is already open. Red “!” on the toolbar icon = skipped/failed.</p>
-    </section>
+      <section id="behaviour" class="card">
+        <div class="card-h"><h2>Behaviour</h2></div>
+        <div class="card-b">
+          <label class="inline"><input id="returnToInbox" type="checkbox" /> Return to where I was in Gmail after a run</label>
+          <label class="inline"><input id="autoClean" type="checkbox" /> Auto-clean every <input id="autoInterval" type="number" min="1" max="720" step="1" style="width:5em" /> hours (needs an open Gmail tab; red “!” on the icon if skipped)</label>
+        </div>
+      </section>
 
-    <div class="bar"><div class="inner">
-      <button id="save" class="primary">Save settings</button>
-      <span id="saved" class="muted"></span>
-    </div></div>
-  </main>
+      <section id="about" class="card">
+        <div class="card-h"><h2>About</h2></div>
+        <div class="card-b help">Inbox Broom drives the Gmail web page like you would by hand. No API keys; nothing leaves your machine except calls to your local Ollama. <a href="https://github.com/shivangrathore/inboxbroom" target="_blank">Source, issues and updates on GitHub</a>. MIT.</div>
+      </section>
+    </main>
+  </div>
+
+  <div class="bar"><div class="inner"><span id="saved" class="small muted"></span><button id="save" class="btn primary">Save settings</button></div></div>
   <script src="options.js"></script>
 </body>
 </html>

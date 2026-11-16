@@ -3,21 +3,28 @@ const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra 
 
 let busy = false;
 let settings = null;
-let lastScan = null;
 
 const ACTION_LABEL = (r) => (r.action === "label" ? `→ ${r.label || "Cleaned"}` : r.action === "delete" ? "→ Trash" : "→ Archive");
+const COLOR_HEX = { red: "#fb4c2f", orange: "#ffad47", yellow: "#fad165", green: "#16a766", teal: "#43d692", blue: "#4a86e8", purple: "#a479e2", pink: "#f691b3", gray: "#cccccc", brown: "#ac2e00" };
 
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
 function setStatus(text, kind = "") {
   $("statusText").textContent = text;
-  $("status").className = `status ${kind}`;
-  $("dot").className = `dot ${kind}`;
+  $("status").className = `card status ${kind}`;
+  $("dot").className = `dot ${kind === "running" ? "busy" : kind === "error" ? "bad" : kind === "ok" ? "ok" : ""}`;
+  $("bar").classList.toggle("hidden", kind !== "running");
 }
 function setBusy(b) {
   busy = b;
   $("scan").classList.toggle("hidden", b);
-  $("clean").classList.toggle("hidden", b);
   $("stop").classList.toggle("hidden", !b);
-  if (b) setStatus($("statusText").textContent, "running");
+  $("clean").disabled = b;
+  $("createLabels").disabled = b;
 }
 function friendlyError(e) {
   const m = e?.message || String(e);
@@ -27,205 +34,135 @@ function friendlyError(e) {
 }
 const selectedRuleIds = () => [...settings.rules.filter((r) => r.enabled).map((r) => r.id), ...(settings.retentionEnabled ? ["retention"] : [])];
 
-function renderRules(counts = {}) {
+function showPage(name) {
+  for (const p of document.querySelectorAll(".page")) p.classList.toggle("hidden", p.id !== `page-${name}`);
+  for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.dataset.page === name);
+  try { localStorage.setItem("tab", name); } catch {}
+}
+
+function toggleRow({ on, title, meta, pill, onchange, off }) {
+  const row = document.createElement("div");
+  row.className = `row rule-row${on ? "" : " off"}`;
+  const sw = document.createElement("label");
+  sw.className = "switch";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = on;
+  cb.onchange = () => {
+    row.classList.toggle("off", !cb.checked);
+    onchange(cb.checked);
+  };
+  sw.append(cb, document.createElement("span"));
+  const grow = document.createElement("div");
+  grow.className = "grow";
+  const t = document.createElement("div");
+  t.className = "t";
+  t.textContent = title;
+  const m = document.createElement("div");
+  m.className = "meta";
+  m.textContent = meta;
+  grow.append(t, m);
+  row.append(sw, grow);
+  if (pill) {
+    const p = document.createElement("span");
+    p.className = "pill";
+    p.textContent = pill;
+    row.appendChild(p);
+  }
+  return row;
+}
+
+function renderRules() {
   const root = $("rules");
   root.innerHTML = "";
   for (const r of settings.rules) {
-    const div = document.createElement("div");
-    div.className = `rule${r.enabled ? "" : " off"}`;
-    const sw = document.createElement("label");
-    sw.className = "switch";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = !!r.enabled;
-    cb.onchange = async () => {
-      r.enabled = cb.checked;
-      div.classList.toggle("off", !r.enabled);
-      await send("saveSettings", { patch: { rules: settings.rules } });
-    };
-    sw.append(cb, document.createElement("span"));
-    const name = document.createElement("div");
-    name.className = "name";
-    name.textContent = r.name;
-    name.title = r.query;
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const c = counts[r.id];
-    meta.innerHTML = "";
-    if (c != null) {
-      const b = document.createElement("span");
-      b.className = "count";
-      b.textContent = c;
-      meta.append(b, document.createTextNode(` to clean · `));
-    }
-    meta.append(document.createTextNode(`${r.type === "ai" ? "AI" : "search"} ${ACTION_LABEL(r)}`));
-    const pill = document.createElement("span");
-    pill.className = "pill";
-    pill.textContent = r.type === "ai" ? "AI" : "bulk";
-    div.append(sw, name, pill, meta);
-    root.appendChild(div);
+    root.appendChild(
+      toggleRow({
+        on: !!r.enabled,
+        title: r.name,
+        meta: `${r.type === "ai" ? "AI" : "search"} ${ACTION_LABEL(r)} · ${r.query}`,
+        pill: r.type === "ai" ? "AI" : "bulk",
+        onchange: async (v) => {
+          r.enabled = v;
+          await send("saveSettings", { patch: { rules: settings.rules } });
+        },
+      })
+    );
   }
-  // retention pseudo-rule
   const ret = Object.entries(settings.retention || {}).filter(([, d]) => Number(d) > 0);
   if (ret.length) {
-    const div = document.createElement("div");
-    div.className = `rule${settings.retentionEnabled ? "" : " off"}`;
-    const sw = document.createElement("label");
-    sw.className = "switch";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = !!settings.retentionEnabled;
-    cb.onchange = async () => {
-      settings.retentionEnabled = cb.checked;
-      div.classList.toggle("off", !cb.checked);
-      await send("saveSettings", { patch: { retentionEnabled: cb.checked } });
-    };
-    sw.append(cb, document.createElement("span"));
-    const name = document.createElement("div");
-    name.className = "name";
-    name.textContent = "Expire inbox mail (archive = keep)";
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    meta.textContent = ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " → Trash";
-    const pill = document.createElement("span");
-    pill.className = "pill";
-    pill.textContent = "bulk";
-    div.append(sw, name, pill, meta);
-    root.appendChild(div);
+    root.appendChild(
+      toggleRow({
+        on: !!settings.retentionEnabled,
+        title: "Expire inbox mail (archive = keep)",
+        meta: ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " → Trash",
+        pill: "bulk",
+        onchange: async (v) => {
+          settings.retentionEnabled = v;
+          await send("saveSettings", { patch: { retentionEnabled: v } });
+        },
+      })
+    );
+  }
+}
+
+async function renderLabels() {
+  const { knownLabels = [] } = await browser.storage.local.get("knownLabels");
+  const root = $("labelList");
+  root.innerHTML = "";
+  $("labelCount").textContent = knownLabels.length ? `${knownLabels.length} found` : "none read yet";
+  if (!knownLabels.length) {
+    root.innerHTML = `<div class="empty">Run a preview or Organize labels to read your Gmail labels.</div>`;
+    return;
+  }
+  const core = (l) => l.replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").toLowerCase();
+  const style = settings.labelStyle || {};
+  for (const l of [...knownLabels].sort((a, b) => a.localeCompare(b))) {
+    const st = Object.entries(style).find(([k]) => k.toLowerCase() === core(l))?.[1];
+    const row = document.createElement("div");
+    row.className = "row";
+    const d = document.createElement("span");
+    d.className = "ldot";
+    if (st?.color && COLOR_HEX[st.color]) d.style.background = COLOR_HEX[st.color];
+    const grow = document.createElement("div");
+    grow.className = "grow";
+    grow.innerHTML = `<div class="t"></div><div class="s"></div>`;
+    grow.querySelector(".t").textContent = l;
+    grow.querySelector(".s").textContent = st ? `${st.color || "no color"} · ${st.show === "unread" ? "show if unread" : st.show || "sidebar unchanged"}` : "your label";
+    row.append(d, grow);
+    root.appendChild(row);
   }
 }
 
 function renderHistory(history) {
-  const ul = $("historyList");
-  ul.innerHTML = "";
-  $("historyText").textContent = history[0] ? `last: ${new Date(history[0].at).toLocaleString()} · ${history[0].total} cleaned` : "none yet";
-  for (const h of history.slice(0, 8)) {
-    const li = document.createElement("li");
-    li.textContent = `${new Date(h.at).toLocaleString()} – ${h.total} cleaned (${(h.summary || []).map((s) => `${s.count} ${s.rule}`).join(", ")})`;
-    ul.appendChild(li);
-  }
-}
-
-function smallBtn(text, title, onclick) {
-  const b = document.createElement("button");
-  b.className = "btn sm";
-  b.textContent = text;
-  b.title = title;
-  b.onclick = async (e) => {
-    e.stopPropagation();
-    b.disabled = true;
-    await onclick(b);
-  };
-  return b;
-}
-
-function itemRow(it, r) {
-  const li = document.createElement("li");
-  const who = document.createElement("div");
-  who.className = "who";
-  who.textContent = it.sender || it.email;
-  who.title = it.email;
-  const ctl = document.createElement("div");
-  ctl.className = "ctl";
-
-  if (r.rule.type === "ai") {
-    const badge = document.createElement("span");
-    badge.className = `badge ${it.junk ? "junk" : "keep"}`;
-    badge.textContent = `${it.junk ? "junk" : "keep"}${it.score != null ? " " + it.score : ""}`;
-    badge.title = it.source === "sender" ? "decided from sender history" : it.source === "manual" ? "your override" : "AI score";
-    ctl.appendChild(
-      smallBtn(it.junk ? "keep" : "junk", "Flip this verdict", async (b) => {
-        it.junk = !it.junk;
-        await send("aiCacheSet", { id: it.id, junk: it.junk });
-        badge.className = `badge ${it.junk ? "junk" : "keep"}`;
-        badge.textContent = it.junk ? "junk" : "keep";
-        b.textContent = it.junk ? "keep" : "junk";
-        b.disabled = false;
-      })
-    );
-    ctl.appendChild(
-      smallBtn("always junk", `Always clean mail from ${it.email}`, async (b) => {
-        await send("senderSet", { email: it.email, verdict: "junk" });
-        b.textContent = "✓ sender";
-      })
-    );
-    ctl.appendChild(badge);
-  }
-  if (it.email) {
-    ctl.appendChild(
-      smallBtn("keep sender", `Never touch mail from ${it.email}`, async (b) => {
-        await send("addAllowlist", { entries: [it.email] });
-        if (r.rule.type === "ai") await send("senderSet", { email: it.email, verdict: "keep" });
-        b.textContent = "✓ kept";
-      })
-    );
-  }
-  const subj = document.createElement("div");
-  subj.className = "subj";
-  subj.textContent = it.subject || "(no subject)";
-  subj.title = it.snippet || "";
-  li.append(who, ctl, subj);
-  if (it.reason) {
-    const why = document.createElement("div");
-    why.className = "why";
-    why.textContent = it.reason;
-    li.appendChild(why);
-  }
-  return li;
-}
-
-function renderResults(results, mode) {
-  const root = $("results");
+  const root = $("historyList");
   root.innerHTML = "";
-  const counts = {};
-  for (const r of results) {
-    const junkItems = r.rule.type === "ai" ? r.items.filter((i) => i.junk) : r.items;
-    const keptItems = r.rule.type === "ai" ? r.items.filter((i) => !i.junk) : [];
-    const n = mode === "clean" ? r.done : r.rule.type === "ai" ? junkItems.length : r.count;
-    counts[r.rule.id] = n;
-    const card = document.createElement("details");
-    card.className = "card";
-    card.open = mode === "scan" && n > 0;
-    const sum = document.createElement("summary");
-    const t = document.createElement("span");
-    t.className = "t";
-    t.textContent = r.rule.name;
-    const nn = document.createElement("span");
-    nn.className = "n";
-    nn.textContent = mode === "clean" ? `${r.done} cleaned` : r.rule.type === "ai" ? `${junkItems.length} junk · ${keptItems.length} kept` : `${r.count}`;
-    sum.append(t, nn);
-    card.appendChild(sum);
-    for (const w of r.warnings || []) {
-      const d = document.createElement("div");
-      d.className = "warn";
-      d.textContent = w;
-      card.appendChild(d);
-    }
-    if (mode === "scan" && r.items.length) {
-      const ul = document.createElement("ul");
-      ul.className = "items";
-      const shown = junkItems.slice(0, 50);
-      for (const it of shown) ul.appendChild(itemRow(it, r));
-      card.appendChild(ul);
-      const more = document.createElement("div");
-      more.className = "more";
-      const restJunk = (r.rule.type === "ai" ? junkItems.length : r.count) - shown.length;
-      if (restJunk > 0) more.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `… ${restJunk} more. ` }));
-      if (keptItems.length) {
-        const showKept = document.createElement("button");
-        showKept.className = "link";
-        showKept.textContent = `show ${keptItems.length} kept`;
-        showKept.onclick = () => {
-          for (const it of keptItems) ul.appendChild(itemRow(it, r));
-          showKept.remove();
-        };
-        more.appendChild(showKept);
-      }
-      if (more.childNodes.length) card.appendChild(more);
-    }
-    root.appendChild(card);
+  if (!history.length) {
+    root.innerHTML = `<div class="empty">No runs yet.</div>`;
+    $("lastRun").textContent = "";
+    return;
   }
-  renderRules(mode === "scan" ? counts : {});
+  const h0 = history[0];
+  $("lastRun").textContent = `Last run ${new Date(h0.at).toLocaleString()} · ${h0.total} deleted`;
+  for (const h of history.slice(0, 20)) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const grow = document.createElement("div");
+    grow.className = "grow";
+    const labeled = (h.summary || []).reduce((n, x) => n + (x.labeled || 0), 0);
+    grow.innerHTML = `<div class="t"></div><div class="s"></div>`;
+    grow.querySelector(".t").textContent = `${h.total} deleted${labeled ? ` · ${labeled} labeled` : ""}`;
+    grow.querySelector(".s").textContent = `${new Date(h.at).toLocaleString()} · ${(h.summary || []).filter((x) => x.count).map((x) => `${x.count} ${x.rule}`).join(", ") || "nothing matched"}`;
+    row.appendChild(grow);
+    const warn = (h.summary || []).filter((x) => x.warn).length;
+    if (warn) {
+      const b = document.createElement("span");
+      b.className = "badge junk";
+      b.textContent = `${warn} warning${warn > 1 ? "s" : ""}`;
+      row.appendChild(b);
+    }
+    root.appendChild(row);
+  }
 }
 
 async function runMode(mode) {
@@ -233,7 +170,7 @@ async function runMode(mode) {
   if (!ruleIds.length) return setStatus("Turn on at least one rule.", "error");
   if (mode === "scan") {
     setBusy(true);
-    setStatus("Previewing… the review page opens when done.", "running");
+    setStatus("Previewing… the review tab opens when done.", "running");
     try {
       await send("run", { mode: "scan", ruleIds });
       setStatus("Preview ready in the review tab.", "ok");
@@ -245,24 +182,13 @@ async function runMode(mode) {
     }
     return;
   }
-  if (mode === "clean") {
-    const active = settings.rules.filter((r) => ruleIds.includes(r.id));
-    const hasDelete = active.some((r) => r.action === "delete");
-    if (!confirm(`Clean with ${active.length} rule(s) now?` + (hasDelete ? "\n\nSome rules move mail to Trash (purged after 30 days)." : "") + "\n\nTip: Preview first."))
-      return;
-  }
+  const active = settings.rules.filter((r) => ruleIds.includes(r.id));
+  if (!confirm(`Clean with ${active.length} rule(s) now, without review?\n\nDeleted mail goes to Trash (30-day undo).`)) return;
   setBusy(true);
-  $("results").innerHTML = "";
-  setStatus(mode === "scan" ? "Previewing… watch the Gmail tab." : "Cleaning… watch the Gmail tab.", "running");
+  setStatus("Cleaning… watch the Gmail tab.", "running");
   try {
-    const res = await send("run", { mode, ruleIds });
-    if (mode === "scan") lastScan = res;
-    renderResults(res.results, mode);
-    const total = mode === "scan" ? res.results.reduce((n, r) => n + (r.rule.type === "ai" ? r.items.filter((i) => i.junk).length : r.count), 0) : res.total;
-    setStatus(
-      (mode === "scan" ? `${total} conversation(s) would be cleaned.` : `Cleaned ${total} conversation(s).`) + (res.stopped ? " Stopped early." : ""),
-      "ok"
-    );
+    const res = await send("run", { mode: "clean", ruleIds });
+    setStatus(`Cleaned ${res.total} conversation(s).${res.stopped ? " Stopped early." : ""}`, "ok");
     settings = await send("getSettings");
     renderHistory(settings.history || []);
   } catch (e) {
@@ -276,10 +202,11 @@ async function refresh() {
   settings = await send("getSettings");
   renderRules();
   renderHistory(settings.history || []);
+  renderLabels();
   const pv = await send("previewGet");
   $("review").classList.toggle("hidden", !pv);
   const st = await send("status");
-  if (!st.hasTab) setStatus("No Gmail tab open. Preview/Clean will open one.");
+  if (!st.hasTab) setStatus("No Gmail tab open. Preview will open one.", "");
   if (st.running) {
     const { progress } = await browser.storage.local.get("progress");
     setBusy(true);
@@ -291,29 +218,29 @@ async function refresh() {
 }
 
 $("scan").onclick = () => runMode("scan");
-$("review").onclick = () => send("openReview").then(() => window.close());
 $("clean").onclick = () => runMode("clean");
 $("stop").onclick = () => send("stop");
+$("review").onclick = () => send("openReview").then(() => window.close());
 $("openOptions").onclick = () => browser.runtime.openOptionsPage();
+$("editRules").onclick = () => browser.runtime.openOptionsPage();
 $("createLabels").onclick = async () => {
   setBusy(true);
+  showPage("clean");
   setStatus("Organizing labels… watch the Gmail tab.", "running");
   try {
     const r = await send("organizeLabels");
-    setStatus(
-      `Labels: ${r.created.length} created, ${r.renamed.length} renamed, ${r.colored.length} colored.` +
-        (r.errors.length ? `\n${r.errors.length} error(s). First: ${r.errors[0]}\nFull list in Settings → Labels & tools.` : ""),
-      r.errors.length ? "error" : "ok"
-    );
+    setStatus(`Labels: ${r.created.length} created, ${r.renamed.length} renamed, ${r.colored.length} colored.` + (r.errors.length ? `\n${r.errors.length} error(s). First: ${r.errors[0]}` : ""), r.errors.length ? "error" : "ok");
+    renderLabels();
   } catch (e) {
     setStatus(friendlyError(e), "error");
   } finally {
     setBusy(false);
   }
 };
-$("editRules").onclick = () => browser.runtime.openOptionsPage();
-$("historyBtn").onclick = () => $("historyList").classList.toggle("hidden");
+for (const t of document.querySelectorAll(".tab")) t.onclick = () => showPage(t.dataset.page);
 browser.storage.onChanged.addListener((ch) => {
   if (ch.progress?.newValue?.text && busy) setStatus(ch.progress.newValue.text, "running");
+  if (ch.knownLabels) renderLabels();
 });
+try { showPage(localStorage.getItem("tab") || "clean"); } catch { showPage("clean"); }
 refresh();
