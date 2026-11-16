@@ -78,6 +78,14 @@ async function load() {
   $("returnToInbox").checked = s.returnToInbox !== false;
   $("autoClean").checked = !!s.autoClean;
   $("autoInterval").value = s.autoIntervalHours || 24;
+  $("aiProvider").value = s.ai.provider || "ollama";
+  $("oaEndpoint").value = s.ai.openaiEndpoint || "https://api.openai.com/v1";
+  $("oaKey").value = s.ai.openaiKey || "";
+  $("oaModel").value = s.ai.openaiModel || "gpt-4o-mini";
+  $("anKey").value = s.ai.anthropicKey || "";
+  $("anModel").value = s.ai.anthropicModel || "claude-opus-5-5";
+  $("anBatch").value = s.ai.batchSize;
+  syncProvider();
   $("aiEndpoint").value = s.ai.endpoint;
   $("aiModel").value = s.ai.model;
   $("aiBatch").value = s.ai.batchSize;
@@ -95,11 +103,35 @@ async function load() {
   if (!defaultPrompt) defaultPrompt = s.ai.prompt;
 }
 
+function syncProvider() {
+  const p = $("aiProvider").value;
+  $("provOllama").classList.toggle("hidden", p !== "ollama");
+  $("provOpenai").classList.toggle("hidden", p !== "openai");
+  $("provAnthropic").classList.toggle("hidden", p !== "anthropic");
+}
+$("aiProvider").onchange = syncProvider;
+
+/** Cloud providers live on arbitrary hosts: ask Firefox for that origin once. */
+async function ensureHostPermission(ai) {
+  let origin = null;
+  if (ai.provider === "openai") { try { origin = new URL(ai.openaiEndpoint).origin + "/*"; } catch {} }
+  if (ai.provider === "anthropic") origin = "https://api.anthropic.com/*";
+  if (!origin) return true;
+  if (await browser.permissions.contains({ origins: [origin] })) return true;
+  return browser.permissions.request({ origins: [origin] });
+}
+
 function readAi() {
   return {
+    provider: $("aiProvider").value,
+    openaiEndpoint: $("oaEndpoint").value.trim() || "https://api.openai.com/v1",
+    openaiKey: $("oaKey").value.trim(),
+    openaiModel: $("oaModel").value.trim() || "gpt-4o-mini",
+    anthropicKey: $("anKey").value.trim(),
+    anthropicModel: $("anModel").value.trim() || "claude-opus-5-5",
     endpoint: $("aiEndpoint").value.trim() || "http://127.0.0.1:11434",
     model: $("aiModel").value.trim() || "qwen3:4b",
-    batchSize: Math.max(1, Math.min(30, Number($("aiBatch").value) || 12)),
+    batchSize: Math.max(1, Math.min(30, Number($("aiProvider").value === "anthropic" ? $("anBatch").value : $("aiBatch").value) || 12)),
     keepAlive: $("aiKeepAlive").value.trim() || "1m",
     threshold: Number($("aiThreshold").value) || 60,
     senderMemory: $("aiSenderMemory").checked,
@@ -114,6 +146,8 @@ function readAi() {
 }
 
 async function save() {
+  const aiNow = readAi();
+  if (aiNow.provider !== "ollama") ensureHostPermission(aiNow).catch(() => {});
   await send("saveSettings", {
     patch: {
       rules: readRules(),
@@ -187,6 +221,8 @@ $("toolOrganizeLabels").onclick = async () => {
 };
 $("aiTest").onclick = async () => {
   $("aiResult").textContent = "Testing…";
+  const ai = readAi();
+  if (!(await ensureHostPermission(ai))) return ($("aiResult").textContent = "Permission to contact that host was declined.");
   await save();
   const r = await send("aiTest");
   if (!r.ok) return ($("aiResult").textContent = `Failed: ${r.error}`);

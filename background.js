@@ -104,8 +104,15 @@ const DEFAULT_SETTINGS = {
   autoIntervalHours: 24,
   returnToInbox: true,
   ai: {
+    provider: "ollama", // ollama | openai | anthropic
     endpoint: "http://127.0.0.1:11434",
     model: "qwen3:4b",
+    // cloud providers (only used when provider != ollama). Key stays in extension storage on this machine.
+    openaiEndpoint: "https://api.openai.com/v1",
+    openaiKey: "",
+    openaiModel: "gpt-4o-mini",
+    anthropicKey: "",
+    anthropicModel: "claude-opus-5-5",
     prompt: DEFAULT_AI_PROMPT,
     batchSize: 12,
     keepAlive: "1m",
@@ -440,6 +447,64 @@ const RESULT_SCHEMA = {
   required: ["results"],
 };
 
+/** Routes a chat completion to the configured provider. Returns the assistant text. */
+async function llmChat(ai, messages, opts = {}) {
+  if (ai.provider === "openai") return openaiChat(ai, messages, opts);
+  if (ai.provider === "anthropic") return anthropicChat(ai, messages, opts);
+  return ollamaChat(ai, messages, opts);
+}
+
+async function openaiChat(ai, messages, { numPredict = 1024 } = {}) {
+  const base = (ai.openaiEndpoint || "https://api.openai.com/v1").replace(/\/$/, "");
+  const body = { model: ai.openaiModel, messages, temperature: 0, max_tokens: numPredict, response_format: { type: "json_object" } };
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${ai.openaiKey}` };
+  if (/openrouter\.ai/i.test(base)) headers["HTTP-Referer"] = "https://github.com/shivangrathore/inboxbroom";
+  const post = async (b) => fetch(`${base}/chat/completions`, { method: "POST", headers, body: JSON.stringify(b) });
+  let r = await post(body);
+  if (r.status === 400) {
+    // some providers reject response_format; retry without
+    const t = await r.text().catch(() => "");
+    if (/response_format|json_object/i.test(t)) r = await post({ ...body, response_format: undefined });
+    else throw new Error(`Provider 400: ${t.slice(0, 200)}`);
+  }
+  if (r.status === 401 || r.status === 403) throw new Error("Cloud API key rejected (401/403). Check the key in Settings → Local AI.");
+  if (r.status === 404) throw new Error(`Model "${ai.openaiModel}" not found at ${base} (404).`);
+  if (r.status === 429) throw new Error("Cloud provider rate limit (429). Lower the batch size or wait.");
+  if (!r.ok) throw new Error(`Provider ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
+  const j = await r.json();
+  return j.choices?.[0]?.message?.content || "";
+}
+
+async function anthropicChat(ai, messages, { numPredict = 1024 } = {}) {
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const msgs = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content }));
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ai.anthropicKey,
+      "anthropic-version": "2026-10-21",
+      "anthropic-beta": "server-side-fallback-2026-07-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: ai.anthropicModel || "claude-opus-5-5",
+      max_tokens: Math.max(1024, numPredict),
+      system,
+      messages: msgs,
+      output_config: { effort: "low" },
+      fallbacks: "default",
+    }),
+  });
+  if (r.status === 401 || r.status === 403) throw new Error("Anthropic API key rejected (401/403). Check the key in Settings → Local AI.");
+  if (r.status === 404) throw new Error(`Anthropic model "${ai.anthropicModel}" not found (404).`);
+  if (r.status === 429) throw new Error("Anthropic rate limit (429). Lower the batch size or wait.");
+  if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
+  const j = await r.json();
+  if (j.stop_reason === "refusal") throw new Error(`Anthropic declined the request${j.stop_details?.category ? ` (${j.stop_details.category})` : ""}.`);
+  return (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+}
+
 async function ollamaChat(ai, messages, { format = RESULT_SCHEMA, numPredict = 1024 } = {}) {
   const url = ai.endpoint.replace(/\/$/, "") + "/api/chat";
   const body = {
@@ -523,7 +588,7 @@ async function modelScoresOnce(ai, batch, rule, labels) {
   const sys = withPersona(ai, ai.prompt || DEFAULT_AI_PROMPT) + "\n\n" + FEW_SHOT + (rule?.aiHint ? `\n\nExtra guidance from the user: ${rule.aiHint}` : "");
   const labelLine = cores.length ? `Allowed labels for KEEP mail (pick exactly one of these names, "Other" only as last resort): ${cores.map((l) => JSON.stringify(l)).join(", ")}.\n\n` : "";
   const user = `${labelLine}Classify each email. Respond ONLY with JSON: {"results":[{"n":1,"verdict":"keep","confidence":90,"label":"Finance","reason":"≤8 words"}, ...]} covering every number 1..${batch.length}.\n\n${list}`;
-  const content = await ollamaChat(ai, [
+  const content = await llmChat(ai, [
     { role: "system", content: sys },
     { role: "user", content: user },
   ], { numPredict: 70 * batch.length + 60, format: resultSchema(cores) });
@@ -688,7 +753,7 @@ async function aiSuggestUnsubscribe(subs) {
       .map((m, k) => `${k + 1}. ${m.name} <${m.email}>${m.count ? ` – ${m.count} emails` : ""}${m.subjects.length ? `\n   Recent subjects: ${m.subjects.map((x) => JSON.stringify(x)).join("; ")}` : ""}${m.junkSeen || m.keepSeen ? `\n   Earlier triage: ${m.junkSeen} junk / ${m.keepSeen} keep` : ""}${m.transactional ? "\n   Hint: a service the person transacts with" : ""}`)
       .join("\n");
     try {
-      const content = await ollamaChat(ai, [
+      const content = await llmChat(ai, [
         { role: "system", content: withPersona(ai, UNSUB_PROMPT) },
         { role: "user", content: `Decide for each sender. Respond ONLY with JSON {"results":[{"n":1,"unsubscribe":true,"reason":"≤8 words"},…]} covering 1..${batch.length}.\n\n${list}` },
       ], { format: UNSUB_SCHEMA, numPredict: 60 * batch.length + 60 });
@@ -721,7 +786,9 @@ async function aiTest() {
     { id: "b", sender: "Sam", email: "sam.mehta@gmail.com", subject: "Re: invoice for October", snippet: "Hi, attached is the corrected invoice" },
   ];
   const v = await modelScores(ai, sample);
-  return { ok: true, ms: Date.now() - t0, verdicts: sample.map((s, i) => ({ id: s.id, score: v[i].score })), model: ai.model };
+  const model = ai.provider === "openai" ? ai.openaiModel : ai.provider === "anthropic" ? ai.anthropicModel : ai.model;
+  if (v.every((x) => x.score == null)) return { ok: false, error: `${ai.provider || "ollama"} answered but returned no usable JSON (${v[0]?.reason || ""})` };
+  return { ok: true, ms: Date.now() - t0, verdicts: sample.map((s, i) => ({ id: s.id, score: v[i].score })), model: `${ai.provider || "ollama"}:${model}` };
 }
 
 // ---------------------------------------------------------------- alarms

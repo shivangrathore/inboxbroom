@@ -46,9 +46,19 @@ Firefox release builds only install signed add-ons. Options:
   ```
   Install the signed `.xpi` from `web-ext-artifacts/`. Change the id in `manifest.json` (`browser_specific_settings.gecko.id`) to something of your own first, AMO ids are unique per account.
 
-## Local AI setup (optional but recommended)
+## AI provider (optional but recommended)
 
-Without Ollama only bulk rules run. With it you get triage, labels and unsubscribe suggestions.
+Without a model only bulk rules run. With one you get triage, labels and unsubscribe suggestions. Pick one in **Settings → Local AI → Provider**:
+
+| Provider | What leaves your machine | Cost | Notes |
+|---|---|---|---|
+| **Ollama** (default) | nothing | free | best privacy; needs ~2.5 GB model, runs on CPU or GPU |
+| **OpenAI-compatible** | sender, subject, ~200 chars of preview per mail | per token | works with OpenAI, OpenRouter, Groq, Mistral, Gemini (OpenAI compat endpoint), LM Studio, vLLM… set base URL + key + model |
+| **Anthropic** | same | per token | `claude-opus-5-5` default (low effort), `claude-haiku-5-5` for cheap bulk triage |
+
+API keys are stored only in the extension's local storage. Firefox asks once for permission to contact the provider's host.
+
+### Ollama
 
 ```sh
 # 1. Install Ollama  https://ollama.com

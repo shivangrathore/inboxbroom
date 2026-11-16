@@ -63,12 +63,28 @@
       <section id="ai" class="card">
         <div class="card-h"><h2>Local AI (Ollama)</h2><button id="aiTest" class="btn sm outline">Test connection</button></div>
         <div class="card-b">
-          <p class="help">Runs fully on your machine. Each mail gets a junk score 0–100 from sender, subject and preview; at or above the threshold it is deleted. <span id="aiResult"></span></p>
-          <div class="grid4">
+          <p class="help">Each mail's sender, subject and preview go to the model, which returns junk/keep plus a label. <b>Ollama</b> keeps everything on your machine. A cloud provider sends that text to their servers; the key is stored only in this extension's storage. <span id="aiResult"></span></p>
+          <div class="field"><label>Provider</label>
+            <select id="aiProvider" style="max-width: 22em">
+              <option value="ollama">Ollama (local, free, private)</option>
+              <option value="openai">OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Gemini compat, LM Studio…)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select></div>
+          <div id="provOllama" class="grid4">
             <div class="field"><label>Endpoint</label><input id="aiEndpoint" type="text" spellcheck="false" placeholder="http://127.0.0.1:11434" /></div>
             <div class="field"><label>Model</label><input id="aiModel" type="text" spellcheck="false" placeholder="qwen3:4b" /></div>
             <div class="field"><label>Batch</label><input id="aiBatch" type="number" min="1" max="30" /></div>
             <div class="field"><label>Unload after</label><input id="aiKeepAlive" type="text" placeholder="1m" title="Ollama keep_alive: 0 = immediately, 1m, 5m" /></div>
+          </div>
+          <div id="provOpenai" class="grid3 hidden">
+            <div class="field"><label>Base URL</label><input id="oaEndpoint" type="text" spellcheck="false" placeholder="https://api.openai.com/v1" /><div class="help">OpenRouter: <code>https://openrouter.ai/api/v1</code> · Groq: <code>https://api.groq.com/openai/v1</code> · Gemini: <code>https://generativelanguage.googleapis.com/v1beta/openai</code></div></div>
+            <div class="field"><label>API key</label><input id="oaKey" type="password" spellcheck="false" placeholder="sk-…" autocomplete="off" /></div>
+            <div class="field"><label>Model</label><input id="oaModel" type="text" spellcheck="false" placeholder="gpt-4o-mini" /></div>
+          </div>
+          <div id="provAnthropic" class="grid3 hidden">
+            <div class="field"><label>API key</label><input id="anKey" type="password" spellcheck="false" placeholder="sk-ant-…" autocomplete="off" /></div>
+            <div class="field"><label>Model</label><input id="anModel" type="text" spellcheck="false" placeholder="claude-opus-5-5" /><div class="help"><code>claude-opus-5-5</code> default; <code>claude-haiku-5-5</code> is the cheap option for bulk triage. Uses low effort and Anthropic's refusal fallback.</div></div>
+            <div class="field"><label>Batch</label><input id="anBatch" type="number" min="1" max="30" /></div>
           </div>
           <div class="field"><label>Who owns this inbox? (shapes what counts as junk)</label><input id="aiPersona" type="text" placeholder="a software developer / freelancer in India" /></div>
           <div class="field"><label>Junk threshold <span id="thrVal" class="muted"></span></label><input id="aiThreshold" type="range" min="30" max="90" step="5" /><div class="help">Lower = more aggressive. 60 is a good start; 50 if it still misses junk.</div></div>
