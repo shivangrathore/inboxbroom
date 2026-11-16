@@ -282,6 +282,7 @@
   }
 
   async function createLabels({ names, labelFormat }) {
+    stopRequested = false;
     const startHash = location.hash;
     if (!location.hash.startsWith("#inbox")) {
       location.hash = "#inbox";
@@ -444,6 +445,8 @@
 
   /** Create missing labels, rename to the chosen format, set visibility and color. */
   async function organizeLabels({ names, labelFormat, style }) {
+    stopRequested = false;
+    running = true;
     const startHash = location.hash;
     const created = await createLabels({ names, labelFormat });
     const fmt = created.format;
@@ -489,6 +492,7 @@
       }
     }
     report.labels = [...current.values()];
+    running = false;
     await browser.storage.local.set({ lastToolReport: { at: Date.now(), tool: "organizeLabels", ...report }, knownLabels: report.labels }).catch(() => {});
     progress(`Labels organized: ${report.created.length} created, ${report.renamed.length} renamed, ${report.colored.length} colored${report.errors.length ? `, ${report.errors.length} error(s)` : ""}.`, report.errors.length ? "error" : "ok");
     hideBanner(6000);
@@ -1068,7 +1072,10 @@
     if (msg.type === "apply") return apply(msg);
     if (msg.type === "createLabels") return createLabels(msg);
     if (msg.type === "organizeLabels") return organizeLabels(msg);
-    if (msg.type === "listLabels") return existingLabels();
+    if (msg.type === "listLabels") {
+      stopRequested = false;
+      return existingLabels();
+    }
     if (msg.type === "stop") {
       stopRequested = true;
       return Promise.resolve(true);
