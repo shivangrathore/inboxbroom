@@ -2,6 +2,46 @@ const $ = (id) => document.getElementById(id);
 const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
 let defaultPrompt = "";
 
+
+const GMAIL_COLOR_NAMES = ["", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray", "brown"];
+function styleRow(label, st = {}) {
+  const tr = document.createElement("tr");
+  tr.dataset.label = label;
+  tr.innerHTML = `<td></td><td><select class="sc"></select></td><td><select class="sv"><option value="">leave</option><option value="show">show (pinned)</option><option value="unread">show if unread</option><option value="hide">hide (under More)</option></select></td>`;
+  tr.querySelector("td").textContent = label;
+  const sc = tr.querySelector(".sc");
+  for (const c of GMAIL_COLOR_NAMES) sc.appendChild(new Option(c || "leave", c));
+  sc.value = st.color || "";
+  tr.querySelector(".sv").value = st.show || "";
+  return tr;
+}
+function readLabelStyle() {
+  const out = {};
+  for (const tr of document.querySelectorAll("#labelStyle tbody tr")) {
+    const color = tr.querySelector(".sc").value;
+    const show = tr.querySelector(".sv").value;
+    if (color || show) out[tr.dataset.label] = { ...(color ? { color } : {}), ...(show ? { show } : {}) };
+  }
+  return out;
+}
+function retentionRow(label = "", days = "") {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650"></td><td><button class="btn icon del" title="Remove">✕</button></td>`;
+  tr.querySelector(".rl").value = label;
+  tr.querySelector(".rd").value = days;
+  tr.querySelector(".del").onclick = () => tr.remove();
+  return tr;
+}
+function readRetention() {
+  const out = {};
+  for (const tr of document.querySelectorAll("#retention tbody tr")) {
+    const l = tr.querySelector(".rl").value.trim();
+    const d = Number(tr.querySelector(".rd").value) || 0;
+    if (l) out[l] = d;
+  }
+  return out;
+}
+
 function ruleRow(rule = {}) {
   const card = document.createElement("div");
   card.className = "rule-card";
@@ -45,7 +85,7 @@ function ruleRow(rule = {}) {
 }
 
 function readRules() {
-  return [...document.querySelectorAll("#rules .rule-card")]
+  return [...document.querySelectorAll("#rulesList .rule-card")]
     .map((c) => ({
       id: c.dataset.id,
       type: c.querySelector(".type").value,
@@ -60,9 +100,13 @@ function readRules() {
     .filter((r) => r.query);
 }
 
-async function load() {
+let loadedOk = false;
+for (const c of document.querySelectorAll("#oaPresets .chip")) c.onclick = () => { $("oaEndpoint").value = c.dataset.url; if (!$("oaModel").value.trim() || $("oaModel").dataset.preset) { $("oaModel").value = c.dataset.model; $("oaModel").dataset.preset = "1"; } };
+$("oaModel")?.addEventListener("input", () => delete $("oaModel").dataset.preset);
+
+async function loadInner() {
   const s = await send("getSettings");
-  const rulesRoot = document.querySelector("#rules");
+  const rulesRoot = document.querySelector("#rulesList");
   rulesRoot.innerHTML = "";
   for (const r of s.rules) rulesRoot.appendChild(ruleRow(r));
   $("allowlist").value = (s.allowlist || []).join("\n");
@@ -70,6 +114,7 @@ async function load() {
   const sb = document.querySelector("#labelStyle tbody");
   sb.innerHTML = "";
   for (const l of [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.labelStyle || {})])]) sb.appendChild(styleRow(l, s.labelStyle?.[l]));
+  for (const b of document.querySelectorAll("#themeSeg button")) b.classList.toggle("active", (s.theme || "system") === b.dataset.v);
   $("retentionEnabled").checked = s.retentionEnabled !== false;
   const rb = document.querySelector("#retention tbody");
   rb.innerHTML = "";
@@ -145,7 +190,20 @@ function readAi() {
   };
 }
 
+async function load() {
+  $("save").disabled = true;
+  try {
+    await loadInner();
+    loadedOk = true;
+    $("save").disabled = false;
+  } catch (e) {
+    console.error("[Inbox Broom] settings load failed", e);
+    $("saved").textContent = `Settings failed to load (${e.message}). Saving is disabled; reload the page.`;
+  }
+}
+
 async function save() {
+  if (!loadedOk) return;
   const aiNow = readAi();
   if (aiNow.provider !== "ollama") ensureHostPermission(aiNow).catch(() => {});
   await send("saveSettings", {
@@ -155,6 +213,7 @@ async function save() {
       returnToInbox: $("returnToInbox").checked,
       labelFormat: $("labelFormat").value.trim() || "auto",
       labelStyle: readLabelStyle(),
+      theme: document.querySelector("#themeSeg button.active")?.dataset.v || "system",
       retentionEnabled: $("retentionEnabled").checked,
       retention: readRetention(),
       autoClean: $("autoClean").checked,
@@ -170,7 +229,7 @@ $("aiThreshold").oninput = () => ($("thrVal").textContent = $("aiThreshold").val
 $("addRetention").onclick = () => document.querySelector("#retention tbody").appendChild(retentionRow());
 $("addRule").onclick = () => {
   const c = ruleRow({ type: "query", action: "delete", enabled: true });
-  document.querySelector("#rules").appendChild(c);
+  document.querySelector("#rulesList").appendChild(c);
   c.querySelector(".name").focus();
 };
 $("save").onclick = save;
@@ -220,14 +279,16 @@ $("toolOrganizeLabels").onclick = async () => {
   }
 };
 $("aiTest").onclick = async () => {
-  $("aiResult").textContent = "Testing…";
+  $("aiResult").className = "alert"; $("aiResult").textContent = "Testing…";
   const ai = readAi();
-  if (!(await ensureHostPermission(ai))) return ($("aiResult").textContent = "Permission to contact that host was declined.");
+  if (!(await ensureHostPermission(ai))) { $("aiResult").className = "alert danger"; $("aiResult").textContent = "Permission to contact that host was declined."; return; }
   await save();
   const r = await send("aiTest");
-  if (!r.ok) return ($("aiResult").textContent = `Failed: ${r.error}`);
+  const box = $("aiResult");
+  box.classList.remove("hidden");
+  if (!r.ok) { box.className = "alert danger"; box.textContent = `Connection failed: ${r.error}`; return; }
   const v = r.verdicts.map((x) => `${x.id === "a" ? "Zara sale" : "Invoice reply"} → ${x.score}`).join(", ");
-  $("aiResult").textContent = `OK (${r.model}, ${r.ms} ms): ${v}`;
+  box.className = "alert"; box.textContent = `Connected to ${r.model} in ${r.ms} ms. Sample: ${v}`;
 };
 
 function describeReport(r) {
@@ -271,3 +332,9 @@ load().then(setupChecks);
 
 // side nav: plain anchors; highlight on click
 for (const a of document.querySelectorAll("#nav a")) a.addEventListener("click", () => document.querySelectorAll("#nav a").forEach((x) => x.classList.toggle("active", x === a)));
+
+for (const b of document.querySelectorAll("#themeSeg button")) b.onclick = () => {
+  document.querySelectorAll("#themeSeg button").forEach((x) => x.classList.toggle("active", x === b));
+  const t = b.dataset.v;
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+};

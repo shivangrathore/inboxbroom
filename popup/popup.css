@@ -1,20 +1,20 @@
 body { width: 400px; height: 560px; display: flex; flex-direction: column; overflow: hidden; }
-.top { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--background); border-bottom: 1px solid var(--border); }
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand img { border-radius: 6px; }
 main { flex: 1; overflow-y: auto; padding: 12px; }
 .page { display: flex; flex-direction: column; gap: 10px; }
-.status .st { font-weight: 600; min-height: 20px; }
-.status.error .st { color: var(--danger); }
+.status .st { font-weight: 500; min-height: 20px; }
+.status.error .st { color: var(--destructive); }
 .status.ok .st { color: var(--success); }
-.btn.big { flex-direction: column; gap: 2px; padding: 12px 14px; font-size: 15px; }
+.btn.big { flex-direction: column; gap: 2px; height: auto; padding: 12px 14px; font-size: 15px; align-items: flex-start; }
 .btn.big .sub { font-size: 11.5px; font-weight: 400; opacity: 0.8; }
 .two { display: flex; gap: 8px; }
 .two .btn { flex: 1; }
 .note { margin: 2px 2px 0; }
 .rule-row .meta { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-row.off .t, .rule-row.off .meta { opacity: 0.5; }
-.pill { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); flex: none; }
+.pill { font-size: 10px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; color: var(--muted-foreground); border: 1px solid var(--border); flex: none; }
 .count { font-weight: 700; color: var(--fg); }
-.ldot { width: 12px; height: 12px; border-radius: 3px; flex: none; background: var(--line-strong); }
+.ldot { width: 12px; height: 12px; border-radius: 3px; flex: none; background: var(--input); }
 .tabs { flex: none; }

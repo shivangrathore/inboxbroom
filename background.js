@@ -5,7 +5,7 @@
  */
 
 const ALARM_NAME = "auto-clean";
-const DEFAULTS_VERSION = 11;
+const DEFAULTS_VERSION = 12;
 
 const DEFAULT_AI_PROMPT = `You triage a personal Gmail inbox for {{persona}}. For each email decide a verdict: "junk" (safe to remove unread) or "keep", plus a confidence 0-100.
 
@@ -250,6 +250,10 @@ async function migrate() {
       return out;
     });
     if (v < 8 && JSON.stringify(s.retention) === JSON.stringify({ Orders: 30, Security: 7, Support: 45, Dev: 30, Travel: 120 })) s.retention = { ...DEFAULT_SETTINGS.retention };
+    if (v < 12 && (!s.ai.prompt || !s.ai.prompt.trim())) {
+      // a Save from a half-loaded settings page blanked these; restore defaults
+      for (const k of ["prompt", "senderMemory", "heuristics", "unsubscribe", "labeling", "persona", "suggestedLabels", "ignoreLabels"]) s.ai[k] = DEFAULT_SETTINGS.ai[k];
+    }
     if (v < 11) {
       // labels copied from sender memory before it required a majority: forget them so the model re-labels
       const cache = await getAiCache();

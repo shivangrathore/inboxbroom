@@ -1,5 +1,5 @@
 body { padding-bottom: 76px; }
-.top { position: sticky; top: 0; z-index: 6; background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.top { position: sticky; top: 0; z-index: 6; background: var(--background); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand img { border-radius: 6px; }
 .tools { display: flex; gap: 8px; align-items: center; }
@@ -9,7 +9,7 @@ body { padding-bottom: 76px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .chips .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-right: 4px; }
 .chip.danger.active { background: var(--danger); border-color: var(--danger); color: #fff; }
-.chip.stat { cursor: default; background: var(--surface-2); }
+.chip.stat { cursor: default; background: var(--muted); border-color: transparent; height: auto; padding: 6px 12px; }
 .chip.stat b { font-size: 14px; }
 .chip.stat.danger b { color: var(--danger); }
 .chip.stat.label b { color: var(--primary); }
@@ -24,7 +24,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; 
 .detail .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* rule sections */
-details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--muted); }
 details.sec > summary::-webkit-details-marker { display: none; }
 details.sec > summary b { flex: 0 0 auto; }
 details.sec > summary .q { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
@@ -36,7 +36,7 @@ details.sec .note { padding: 8px 14px 12px; color: var(--muted); font-size: 13px
 /* item rows */
 .item { display: grid; grid-template-columns: 28px 32px 200px minmax(0, 1fr) 64px 92px 150px; gap: 10px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); cursor: pointer; }
 .item:hover { background: var(--surface-2); }
-.item.active { background: var(--primary-soft); }
+.item.active { background: var(--accent); box-shadow: inset 2px 0 0 var(--primary); }
 .item.off > :not(.c) { opacity: 0.45; }
 .item .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item .subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -53,7 +53,7 @@ details.sec .note { padding: 8px 14px 12px; color: var(--muted); font-size: 13px
 .bulk-sample .w { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulk-sample .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--line); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 6; }
+.bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--background); border-top: 1px solid var(--border); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 6; }
 .bar .left { min-width: 0; }
 .bar .right { display: flex; gap: 8px; flex: none; }
 .banner { padding: 10px 14px; }

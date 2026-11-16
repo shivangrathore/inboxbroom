@@ -60,12 +60,13 @@ function toggleRow({ on, title, meta, pill, onchange, off }) {
   t.textContent = title;
   const m = document.createElement("div");
   m.className = "meta";
-  m.textContent = meta;
+  if (typeof meta === "string") m.textContent = meta;
+  else m.append(...meta);
   grow.append(t, m);
   row.append(sw, grow);
   if (pill) {
     const p = document.createElement("span");
-    p.className = "pill";
+    p.className = `pill${pill === "AI" ? " ai" : ""}`;
     p.textContent = pill;
     row.appendChild(p);
   }
@@ -80,7 +81,12 @@ function renderRules() {
       toggleRow({
         on: !!r.enabled,
         title: r.name,
-        meta: `${r.type === "ai" ? "AI" : "search"} ${ACTION_LABEL(r)} · ${r.query}`,
+        meta: (() => {
+          const a = document.createElement("span");
+          a.className = r.action === "delete" ? "act-del" : "act-keep";
+          a.textContent = ACTION_LABEL(r);
+          return [document.createTextNode(`${r.type === "ai" ? "AI" : "search"} `), a, document.createTextNode(` · ${r.query}`)];
+        })(),
         pill: r.type === "ai" ? "AI" : "bulk",
         onchange: async (v) => {
           r.enabled = v;
@@ -95,7 +101,7 @@ function renderRules() {
       toggleRow({
         on: !!settings.retentionEnabled,
         title: "Expire inbox mail (archive = keep)",
-        meta: ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " → Trash",
+        meta: (() => { const a = document.createElement("span"); a.className = "act-del"; a.textContent = "→ Trash"; return [document.createTextNode(ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " "), a]; })(),
         pill: "bulk",
         onchange: async (v) => {
           settings.retentionEnabled = v;
