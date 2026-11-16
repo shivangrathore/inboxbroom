@@ -111,16 +111,29 @@
     return cands[0] || q('[data-tooltip="Select"], [aria-label="Select"]');
   }
 
+  const btnLabel = (b) => `${b.getAttribute("aria-label") || ""}|${b.getAttribute("data-tooltip") || ""}|${b.getAttribute("title") || ""}|${txt(b)}`;
+  function toolbarButtons() {
+    const scope = toolbar() || document;
+    return qa('[role="button"], button', scope);
+  }
   function toolbarButton(name) {
     const act = { Delete: "10", Archive: "7" }[name];
     const scope = toolbar() || document;
-    return (
+    const re = new RegExp(`(^|\\|)\\s*${name}`, "i");
+    const hit =
       (act && (q(`div[act="${act}"]`, scope) || q(`div[act="${act}"]`))) ||
-      q(`[role="button"][data-tooltip^="${name}"]`, scope) ||
-      q(`[role="button"][aria-label^="${name}"]`, scope) ||
-      q(`[role="button"][data-tooltip^="${name}"]`) ||
-      q(`[role="button"][aria-label^="${name}"]`)
-    );
+      toolbarButtons().find((b) => re.test(btnLabel(b))) ||
+      qa('[role="button"], button').find((b) => re.test(btnLabel(b)) && !b.closest('[role="menu"], [role="dialog"]'));
+    if (hit) return hit;
+    if (/^label/i.test(name)) {
+      // Gmail's Labels button is a dropdown (aria-haspopup) that is not Move to / More / Snooze / Tasks
+      const drops = toolbarButtons().filter((b) => b.getAttribute("aria-haspopup") === "true" && !/move|more|snooze|task|add to|select|sort/i.test(btnLabel(b)));
+      if (drops.length) return drops[drops.length - 1];
+    }
+    return null;
+  }
+  function toolbarDiag() {
+    return toolbarButtons().map((b) => btnLabel(b).replace(/\|+$/, "").slice(0, 30) + (b.getAttribute("act") ? `#${b.getAttribute("act")}` : "")).filter(Boolean).slice(0, 25).join(" ; ");
   }
 
   function selectAllMatchingLink() {
@@ -645,10 +658,10 @@
   /** Gmail "Labels" menu → tick label → Apply. Keeps mail where it is. Creates the label if missing. */
   async function labelAs(label) {
     const btn = await waitFor(() => toolbarButton("Label"), { timeout: 6000 });
-    if (!btn) throw new Error(`"Labels" button not found. ${diag()}`);
+    if (!btn) throw new Error(`"Labels" button not found. Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
     click(btn);
     const menu = await waitFor(() => qa('div[role="menu"]').find((m) => m.querySelector("input")), { timeout: 5000 });
-    if (!menu) throw new Error(`"Labels" menu did not open. ${diag()}`);
+    if (!menu) throw new Error(`"Labels" menu did not open after clicking "${btnLabel(btn).slice(0, 40)}". Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
     typeInto(menu.querySelector("input"), label);
     await sleep(600);
     const items = () => qa('[role="menuitemcheckbox"], [role="menuitem"], [role="option"]', menu);
@@ -846,7 +859,7 @@
   /** Gmail "Move to" → label. Labels + archives. Creates the label on first use. */
   async function moveToLabel(label) {
     const btn = await waitFor(() => toolbarButton("Move to"), { timeout: 6000 });
-    if (!btn) throw new Error(`"Move to" button not found. ${diag()}`);
+    if (!btn) throw new Error(`"Move to" button not found. Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
     click(btn);
     const menu = await waitFor(() => qa('div[role="menu"]').find((m) => m.querySelector("input")), { timeout: 5000 });
     if (!menu) throw new Error(`"Move to" menu did not open. ${diag()}`);
