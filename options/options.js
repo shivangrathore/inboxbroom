@@ -233,12 +233,5 @@ $("chkLabelsBtn").onclick = () => $("toolOrganizeLabels").click();
 
 load().then(setupChecks);
 
-// side nav: highlight the section in view
-(() => {
-  const links = [...document.querySelectorAll("#nav a")];
-  const secs = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + e.target.id));
-  }, { rootMargin: "-20% 0px -70% 0px" });
-  secs.forEach((s) => io.observe(s));
-})();
+// side nav: plain anchors; highlight on click
+for (const a of document.querySelectorAll("#nav a")) a.addEventListener("click", () => document.querySelectorAll("#nav a").forEach((x) => x.classList.toggle("active", x === a)));

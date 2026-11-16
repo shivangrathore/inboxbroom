@@ -5,7 +5,7 @@
   --fg: #1b2029; --muted: #6d757e; --muted-2: #8e96a1;
   --success: #017e45; --success-soft: #e3f4ea; --danger: #c83522; --danger-soft: #fbe9e6; --warning: #8b6d00; --warning-soft: #fff6d8; --info-soft: #e8effd;
   --radius: 8px; --radius-lg: 12px; --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
-  --font: "Open Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -57,7 +57,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.
 .switch { position: relative; width: 36px; height: 20px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .switch span { position: absolute; inset: 0; background: var(--line-strong); border-radius: 999px; cursor: pointer; transition: background 0.15s; }
-.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
 .switch input:checked + span { background: var(--primary); }
 .switch input:checked + span::after { transform: translateX(16px); }
 .switch input:focus-visible + span { outline: 2px solid var(--primary); }
