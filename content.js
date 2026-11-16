@@ -219,7 +219,36 @@
     return names;
   }
 
-  async function existingLabels() {
+  /** Expand the sidebar "More" so hidden labels get rendered. */
+  async function expandMore() {
+    const nav = q('div[role="navigation"]') || document;
+    const more = qa('[role="button"], span, div', nav).find((el) => /^more$/i.test(txt(el)) && el.children.length <= 2 && el.getBoundingClientRect().height < 40);
+    if (more) {
+      click(more);
+      await sleep(600);
+      return true;
+    }
+    return false;
+  }
+
+  /** All user labels from Settings → Labels (complete, includes hidden ones). Restores the previous view. */
+  async function labelsFromSettingsPage() {
+    const startHash = location.hash;
+    await openLabelSettings();
+    const names = [];
+    for (const tr of qa("tr")) {
+      if (!rowLink(tr, /^(show|hide|show if unread)$/i) || !rowLink(tr, /^(edit|remove)$/i)) continue;
+      const first = tr.querySelector("td");
+      let name = txt(first).replace(/\s*\(\d+\s*(conversations?|messages?)?\)\s*$/i, "").replace(/\s+\d+\s+(conversations?|unread)?.*$/i, "").trim();
+      if (name && !/^(inbox|starred|snoozed|sent|drafts|spam|trash|important|all mail|scheduled|chats|categories)$/i.test(name)) names.push(name);
+    }
+    location.hash = startHash && !startHash.startsWith("#settings") ? startHash : "#inbox";
+    await sleep(900);
+    return names;
+  }
+
+  async function existingLabels({ deep = true } = {}) {
+    await expandMore().catch(() => {});
     const nav = labelsFromNav();
     let menu = [];
     try {
@@ -227,8 +256,16 @@
     } catch (e) {
       console.warn("[cleaner] label menu read failed", e.message);
     }
+    let page = [];
+    if (deep && menu.length === 0) {
+      try {
+        page = await labelsFromSettingsPage();
+      } catch (e) {
+        console.warn("[cleaner] settings label read failed", e.message);
+      }
+    }
     const all = new Map();
-    for (const l of [...menu, ...nav]) if (l && !/^(inbox|starred|sent|drafts|spam|trash|important|all mail|snoozed|scheduled|chats|unread|categories)$/i.test(l)) all.set(l.toLowerCase(), l);
+    for (const l of [...page, ...menu, ...nav]) if (l && !/^(inbox|starred|sent|drafts|spam|trash|important|all mail|snoozed|scheduled|chats|unread|categories|more)$/i.test(l)) all.set(l.toLowerCase(), l);
     return [...all.values()];
   }
 
@@ -401,21 +438,37 @@
       location.hash = "#inbox";
       await sleep(1200);
     }
-    const row = navLabelRow(name);
-    if (!row) throw new Error(`label "${name}" not visible in the sidebar (hidden under More?). Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
+    let row = navLabelRow(name);
+    if (!row) {
+      await expandMore();
+      row = navLabelRow(name);
+    }
+    if (!row) throw new Error(`label "${name}" not visible in the sidebar even after expanding More. Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(250);
     row.scrollIntoView({ block: "center" });
     row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    row.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     await sleep(300);
     const dots =
       row.querySelector(".pM") ||
       [...row.querySelectorAll('[role="button"]')].find((b) => /options|more|menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "")) ||
       row.querySelector('[role="button"]:not([aria-label*="Create"])');
     if (!dots) throw new Error(`no options button on "${name}" row (buttons: ${[...row.querySelectorAll('[role="button"]')].map((b) => b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || txt(b) || b.className.slice(0, 20)).join(" | ") || "none"}; row tag ${row.tagName}.${String(row.className).slice(0, 30)})`);
-    click(dots);
-    const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 4000 });
+    let menu = null;
+    for (let attempt = 0; attempt < 2 && !menu; attempt++) {
+      click(dots);
+      menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 3000 });
+      if (!menu) {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await sleep(400);
+        row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        await sleep(200);
+      }
+    }
     if (!menu) throw new Error(`label menu did not open (visible menus: ${qa('div[role="menu"]').map((m) => txt(m).slice(0, 60)).join(" || ") || "none"})`);
-    const colorItem = qa('[role="menuitem"]', menu).find((it) => /^label colou?r$/i.test(txt(it)));
-    if (!colorItem) throw new Error('"Label color" item not found');
+    const colorItem = qa('[role="menuitem"]', menu).find((it) => /label colou?r/i.test(txt(it))) || qa("div, span", menu).find((it) => /^(a\s*)?label colou?r$/i.test(txt(it)));
+    if (!colorItem) throw new Error(`"Label color" item not found (items: ${qa('[role="menuitem"]', menu).map(txt).slice(0, 12).join(" | ")})`);
     colorItem.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     click(colorItem);
     await sleep(500);
