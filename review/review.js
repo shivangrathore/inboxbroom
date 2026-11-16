@@ -415,7 +415,11 @@ async function load() {
     $("confirm").disabled = true;
     return;
   }
-  labels = [...new Set([...(preview.labels || []), ...(settings.ai.suggestedLabels || [])])].sort((a, b) => a.localeCompare(b));
+  const core = (l) => String(l).replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").trim().toLowerCase();
+  const byCore = new Map();
+  for (const l of preview.labels || []) if (!byCore.has(core(l))) byCore.set(core(l), l);
+  for (const l of settings.ai.suggestedLabels || []) if (!byCore.has(core(l))) byCore.set(core(l), l);
+  labels = [...byCore.values()].sort((a, b) => a.localeCompare(b));
   $("meta").textContent = `previewed ${new Date(preview.at).toLocaleString()}${preview.stopped ? " (stopped early)" : ""} · ${preview.labels?.length || 0} Gmail labels found`;
   const rf = $("ruleFilter");
   rf.innerHTML = `<option value="">All rules</option>`;

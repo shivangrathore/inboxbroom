@@ -493,7 +493,13 @@ function allowedLabels(ai, existing, settings) {
   return [...set.values()].slice(0, 60);
 }
 
+const coreName = (l) => String(l || "").trim().replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").trim();
+
 async function modelScoresOnce(ai, batch, rule, labels) {
+  // the model sees plain core names (Finance, Dev); we map back to the real Gmail label ([Finance]) afterwards
+  const coreToReal = new Map();
+  for (const l of labels) if (!coreToReal.has(coreName(l).toLowerCase())) coreToReal.set(coreName(l).toLowerCase(), l);
+  const cores = [...new Set(labels.map((l) => coreName(l)))];
   const list = batch
     .map((m, k) => {
       const hints = ai.heuristics ? hintsFor(m).filter((h) => h !== "automated sender address") : [];
@@ -501,19 +507,18 @@ async function modelScoresOnce(ai, batch, rule, labels) {
     })
     .join("\n");
   const sys = withPersona(ai, ai.prompt || DEFAULT_AI_PROMPT) + "\n\n" + FEW_SHOT + (rule?.aiHint ? `\n\nExtra guidance from the user: ${rule.aiHint}` : "");
-  const labelLine = labels.length ? `Allowed labels for KEEP mail (pick one, "Other" only as last resort): ${labels.map((l) => JSON.stringify(l)).join(", ")}.\n\n` : "";
+  const labelLine = cores.length ? `Allowed labels for KEEP mail (pick exactly one of these names, "Other" only as last resort): ${cores.map((l) => JSON.stringify(l)).join(", ")}.\n\n` : "";
   const user = `${labelLine}Classify each email. Respond ONLY with JSON: {"results":[{"n":1,"verdict":"keep","confidence":90,"label":"Finance","reason":"≤8 words"}, ...]} covering every number 1..${batch.length}.\n\n${list}`;
   const content = await ollamaChat(ai, [
     { role: "system", content: sys },
     { role: "user", content: user },
-  ], { numPredict: 70 * batch.length + 60, format: resultSchema(labels) });
+  ], { numPredict: 70 * batch.length + 60, format: resultSchema(cores) });
   const parsed = extractJson(content);
   const arr = Array.isArray(parsed) ? parsed : parsed.results || parsed.emails || Object.values(parsed).find(Array.isArray) || [];
   const byN = new Map(arr.map((x) => [Number(x.n ?? x.index ?? x.id), x]));
-  const lset = new Map(labels.map((l) => [l.toLowerCase(), l]));
   return batch.map((m, k) => {
     const v = byN.get(k + 1) || arr[k];
-    const label = lset.get(String(v?.label || "").trim().toLowerCase()) || "";
+    const label = coreToReal.get(coreName(v?.label).toLowerCase()) || "";
     return { score: parseScore(v), reason: String(v?.reason || "").slice(0, 140), label };
   });
 }
