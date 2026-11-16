@@ -372,8 +372,10 @@
     blue: [74, 134, 232], purple: [164, 121, 226], pink: [246, 145, 179], gray: [204, 204, 204], brown: [172, 46, 0],
   };
   function rgbOf(el) {
-    const m = (el.getAttribute("style") || getComputedStyle(el).backgroundColor || "").match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
-    return m ? [+m[1], +m[2], +m[3]] : null;
+    const bg = getComputedStyle(el).backgroundColor || "";
+    const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/);
+    if (!m || (m[4] !== undefined && Number(m[4]) === 0)) return null;
+    return [+m[1], +m[2], +m[3]];
   }
   function navLabelRow(name) {
     const a = qa('a[href*="#label/"]').find((x) => {
@@ -416,16 +418,26 @@
     colorItem.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     click(colorItem);
     await sleep(500);
-    const swatches = qa('div[role="menu"] [role="menuitem"], div[role="menu"] div').filter((el) => !menu.contains(el) && rgbOf(el) && el.getBoundingClientRect().width < 40 && el.getBoundingClientRect().width > 8);
-    if (!swatches.length) throw new Error("color palette not found");
+    const sub = await waitFor(() => qa('div[role="menu"]').find((m) => m !== menu && !menu.contains(m) && /remove colou?r|custom colou?r/i.test(txt(m))), { timeout: 3000 });
+    const scope = sub || document;
+    const swatches = qa('[role="menuitem"], [role="menuitem"] *, div, span', scope).filter((el) => {
+      if (menu.contains(el)) return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= 10 && r.width <= 40 && r.height >= 10 && r.height <= 40 && rgbOf(el);
+    });
+    if (!swatches.length) throw new Error(`color palette not found (submenu: ${sub ? txt(sub).slice(0, 60) : "none"}; menus: ${qa('div[role="menu"]').length})`);
     let best = null, bd = Infinity;
     for (const sw of swatches) {
       const c = rgbOf(sw);
       const d = Math.hypot(c[0] - target[0], c[1] - target[1], c[2] - target[2]);
       if (d < bd) { bd = d; best = sw; }
     }
-    click(best);
-    await sleep(600);
+    click(best.closest('[role="menuitem"]') || best);
+    await sleep(700);
+    if (dialog()) {
+      const ok = dialogOk();
+      if (ok) click(ok);
+    }
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     return true;
   }
