@@ -456,7 +456,8 @@ async function llmChat(ai, messages, opts = {}) {
 
 async function openaiChat(ai, messages, { numPredict = 1024 } = {}) {
   const base = (ai.openaiEndpoint || "https://api.openai.com/v1").replace(/\/$/, "");
-  const body = { model: ai.openaiModel, messages, temperature: 0, max_tokens: numPredict, response_format: { type: "json_object" } };
+  // reasoning models (o-series, qwen3, gemini thinking…) burn tokens before the JSON: give them room
+  const body = { model: ai.openaiModel, messages, temperature: 0, max_tokens: Math.max(4096, numPredict * 8), response_format: { type: "json_object" } };
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${ai.openaiKey}` };
   if (/openrouter\.ai/i.test(base)) headers["HTTP-Referer"] = "https://github.com/shivangrathore/inboxbroom";
   const post = async (b) => fetch(`${base}/chat/completions`, { method: "POST", headers, body: JSON.stringify(b) });
@@ -472,7 +473,10 @@ async function openaiChat(ai, messages, { numPredict = 1024 } = {}) {
   if (r.status === 429) throw new Error("Cloud provider rate limit (429). Lower the batch size or wait.");
   if (!r.ok) throw new Error(`Provider ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`);
   const j = await r.json();
-  return j.choices?.[0]?.message?.content || "";
+  const msg = j.choices?.[0]?.message || {};
+  const content = msg.content || "";
+  if (!content.trim() && (msg.reasoning || msg.reasoning_content)) throw new Error("Model returned only reasoning and no answer; pick a non-reasoning model or a larger max_tokens.");
+  return content;
 }
 
 async function anthropicChat(ai, messages, { numPredict = 1024 } = {}) {
