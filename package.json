@@ -1,0 +1,16 @@
+{
+  "name": "gmail-inbox-cleaner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firefox extension that cleans junk out of Gmail by driving the web UI, with optional local-LLM triage via Ollama.",
+  "scripts": {
+    "lint": "web-ext lint --source-dir . --ignore-files 'contrib/**' 'scripts/**' '*.md' 'package*.json' '.github/**'",
+    "build": "web-ext build --source-dir . --ignore-files 'contrib/**' 'scripts/**' '*.md' 'package*.json' '.github/**' --overwrite-dest",
+    "run": "web-ext run --source-dir . --start-url https://mail.google.com",
+    "sign": "web-ext sign --source-dir . --ignore-files 'contrib/**' 'scripts/**' '*.md' 'package*.json' '.github/**' --channel unlisted"
+  },
+  "devDependencies": {
+    "web-ext": "^8.3.0"
+  },
+  "license": "MIT"
+}

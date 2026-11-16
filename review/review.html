@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Inbox Cleaner – Review</title>
+  <link rel="stylesheet" href="review.css" />
+</head>
+<body>
+  <header>
+    <div class="brand"><h1>Review before cleaning</h1><span id="meta" class="muted"></span></div>
+    <div class="tools">
+      <input id="search" type="search" placeholder="Filter sender / subject…" />
+      <select id="ruleFilter"><option value="">All rules</option></select>
+      <select id="verdictFilter">
+        <option value="">Everything</option>
+        <option value="junk">To delete</option>
+        <option value="keep">To keep</option>
+      </select>
+      <label class="chk"><input id="groupBySender" type="checkbox" /> group by sender</label>
+    </div>
+  </header>
+
+  <div id="summary" class="summary"></div>
+
+  <main id="main"></main>
+
+  <footer>
+    <div id="progress" class="muted"></div>
+    <div class="right">
+      <button id="rescan" class="btn">Preview again</button>
+      <button id="confirm" class="btn primary">Confirm</button>
+    </div>
+  </footer>
+
+  <script src="review.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+web-ext-artifacts/
+*.xpi
+*.zip
+node_modules/
+gmail-cleaner-ai-log.json
+.DS_Store

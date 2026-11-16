@@ -1,0 +1,10 @@
+[Unit]
+Description=Ollama on-demand socket (localhost:11434)
+
+[Socket]
+ListenStream=127.0.0.1:11434
+ListenStream=[::1]:11434
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

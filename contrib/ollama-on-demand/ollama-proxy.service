@@ -1,0 +1,7 @@
+[Unit]
+Description=Ollama socket proxy (exits when idle, which stops the backend)
+Requires=ollama.service
+After=ollama.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=3min 127.0.0.1:11435

@@ -1,0 +1,60 @@
+{
+  "manifest_version": 2,
+  "name": "Gmail Inbox Cleaner",
+  "version": "1.0.0",
+  "description": "Archive or delete promotional, social and other junk mail from your Gmail inbox by driving the Gmail web UI. No API keys, no setup.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gmail-inbox-cleaner@shivangrathore.github.io",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "storage",
+    "downloads",
+    "alarms",
+    "tabs",
+    "notifications",
+    "https://mail.google.com/*",
+    "http://localhost:11434/*",
+    "http://127.0.0.1:11434/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "browser_action": {
+    "default_title": "Gmail Inbox Cleaner",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  },
+  "homepage_url": "https://github.com/shivangrathore/gmail-inbox-cleaner",
+  "author": "Shivang Rathore"
+}
