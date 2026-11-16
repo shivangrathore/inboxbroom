@@ -5,7 +5,7 @@
  */
 
 const ALARM_NAME = "auto-clean";
-const DEFAULTS_VERSION = 8;
+const DEFAULTS_VERSION = 9;
 
 const DEFAULT_AI_PROMPT = `You triage a personal Gmail inbox for {{persona}}. For each email decide a verdict: "junk" (safe to remove unread) or "keep", plus a confidence 0-100.
 
@@ -72,7 +72,8 @@ const DEFAULT_SETTINGS = {
       id: "ai-primary",
       type: "ai",
       name: "AI triage of the rest of the inbox",
-      query: "in:inbox -is:starred -is:important -category:promotions -category:social",
+      // no -is:important here: Gmail flags shipping/support/forms as important; those are labeled but never deleted
+      query: "in:inbox -is:starred -category:promotions -category:social",
       action: "delete",
       inboxOnly: true,
       maxPages: 10,
@@ -194,7 +195,7 @@ function retentionRules(settings, existing = []) {
 const LEGACY_QUERIES = {
   promotions: ["category:promotions older_than:7d -is:starred -is:important"],
   social: ["category:social older_than:7d -is:starred"],
-  "ai-primary": ["in:inbox category:primary older_than:1d -is:starred -is:important"],
+  "ai-primary": ["in:inbox category:primary older_than:1d -is:starred -is:important", "in:inbox -is:starred -is:important -category:promotions -category:social"],
   unsubscribe: ["in:inbox unsubscribe older_than:30d -is:starred -is:important -category:primary"],
   otp: [
     'older_than:7d -is:starred subject:("otp" OR "one time password" OR "one-time password" OR "verification code" OR "security code" OR "login code" OR "sign-in code" OR "confirmation code" OR "your code is" OR "2fa" OR "two-factor" OR "two factor" OR "new sign-in" OR "new login" OR "login alert" OR "security alert" OR "new device" OR "password reset" OR "reset your password" OR "verify your email" OR "email verification" OR "magic link" OR "login link" OR "sign in to")',
@@ -336,6 +337,7 @@ function hintsFor(m) {
     if (kp) h.push(`transactional words: "${kp[0]}"`);
   }
   if (/^(re|fwd?):/i.test(m.subject || "")) h.push("thread reply");
+  if (m.important) h.push("Gmail marked it important");
   // firstname / firstname.lastname style local part, not automated -> probably a specific person
   if (!AUTOMATED_LOCAL.test(local) && /^[a-z]+([._-][a-z]+)?\d{0,3}$/i.test(local) && !/^(hello|hi|hey|info|team|news|sales|contact|office|admin|billing|orders?|shop|store|care|help|service|jobs|careers|alerts?|accounts?|security|mailer|digest)$/i.test(local))
     h.push("named individual sender");
@@ -360,6 +362,7 @@ function heuristicAdjust(hints) {
   }
   if (reply || personal) d -= 25;
   if (person) d -= 20;
+  if (hints.includes("Gmail marked it important")) d -= 20;
   return d;
 }
 
