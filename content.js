@@ -1007,9 +1007,11 @@
       const parsed = trs.map(parseRow);
       if (parsed.every((p) => seenIds.has(p.id))) break;
       parsed.forEach((p) => seenIds.add(p.id));
+      const uniq = new Map();
+      for (const p of parsed) if (!uniq.has(p.id)) uniq.set(p.id, p);
 
       const needsLabel = (c) => ctx.labels?.length && !c.junk && !c.label && !c.labeled && !c.manual;
-      const toAsk = parsed.filter((p) => !(p.id in cache) || needsLabel(cache[p.id]) || (cache[p.id].manual !== true && mode === "scan" && ctx.rescore));
+      const toAsk = [...uniq.values()].filter((p) => !(p.id in cache) || needsLabel(cache[p.id]) || (cache[p.id].manual !== true && mode === "scan" && ctx.rescore));
       progress(`${mode === "scan" ? "Previewing" : "Cleaning"}: ${rule.name} – page ${page}/${maxPages}, AI checking ${toAsk.length} mail(s)…`);
       if (toAsk.length) {
         const verdicts = await browser.runtime.sendMessage({ type: "aiClassify", items: toAsk, rule, labels: ctx.labels });
@@ -1027,19 +1029,23 @@
       }
       const junkTrs = [];
       const labelGroups = new Map();
+      const listed = new Set();
       for (let i = 0; i < parsed.length; i++) {
         const p = parsed[i];
         const v = cache[p.id] || { junk: false, reason: "", score: 0 };
-        entry.items.push({ ...p, junk: v.junk, reason: v.reason, score: v.score, source: v.source, label: v.label || "", page });
+        if (!listed.has(p.id)) {
+          listed.add(p.id);
+          entry.items.push({ ...p, junk: v.junk, reason: v.reason, score: v.score, source: v.source, label: v.label || "", page });
+          if (!v.junk && v.label && !v.labeled) (labelGroups.get(v.label) || labelGroups.set(v.label, []).get(v.label)).push(p.id);
+        }
         if (v.junk) junkTrs.push(trs[i]);
-        else if (v.label && !v.labeled) (labelGroups.get(v.label) || labelGroups.set(v.label, []).get(v.label)).push(p.id);
       }
       if (mode === "clean" && labelGroups.size) {
         for (const [label, ids] of labelGroups) {
           if (stopRequested) break;
           progress(`Labeling ${ids.length} mail(s) as "${label}" (page ${page})…`);
           const byId = rowsById();
-          const lt = ids.map((id) => byId.get(id)).filter(Boolean);
+          const lt = ids.flatMap((id) => byId.get(id) || []);
           if (!lt.length) continue;
           try {
             for (const tr of lt) {
@@ -1136,9 +1142,13 @@
     }
   }
 
+  /** id → [rows]. With conversation view off, several rows can share one thread id. */
   function rowsById() {
     const map = new Map();
-    for (const tr of rows()) map.set(parseRow(tr).id, tr);
+    for (const tr of rows()) {
+      const id = parseRow(tr).id;
+      (map.get(id) || map.set(id, []).get(id)).push(tr);
+    }
     return map;
   }
 
@@ -1179,15 +1189,15 @@
         for (let page = 1; page <= (a.maxPages || 20) && pending.size && !stopRequested; page++) {
           // 1) labels first (rows stay in place)
           const groups = new Map();
-          for (const [id, tr] of rowsById()) {
+          for (const [id] of rowsById()) {
             const l = labelOf.get(id);
             if (l && pending.has(id)) (groups.get(l) || groups.set(l, []).get(l)).push(id);
           }
           for (const [label, ids] of groups) {
             if (stopRequested) break;
-            progress(`Labeling ${ids.length} mail(s) as "${label}" (page ${page})…`);
             const byId = rowsById();
-            const trs = ids.map((id) => byId.get(id)).filter(Boolean);
+            const trs = ids.flatMap((id) => byId.get(id) || []);
+            progress(`Labeling ${trs.length} mail(s) as "${label}" (page ${page})…`);
             if (!trs.length) continue;
             try {
               for (const tr of trs) {
@@ -1207,7 +1217,7 @@
           }
           // 2) deletions on this page
           const byId = rowsById();
-          const delTrs = [...byId].filter(([id]) => del.has(id) && pending.has(id)).map(([, tr]) => tr);
+          const delTrs = [...byId].filter(([id]) => del.has(id) && pending.has(id)).flatMap(([, trs]) => trs);
           if (delTrs.length) {
             progress(`Deleting ${delTrs.length} mail(s) (page ${page})…`);
             await rowAction(delTrs, { action: rule.action === "archive" ? "archive" : "delete" });
