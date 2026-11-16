@@ -466,14 +466,15 @@
     }
     return a.closest(".TO, .aim, div[role='treeitem'], tr") || a.parentElement;
   }
-  async function setLabelColor(name, colorName) {
+  async function setLabelColor(name, colorName, { keepSidebar = false } = {}) {
     const target = GMAIL_COLORS[colorName];
     if (!target) return false;
     if (!location.hash.startsWith("#inbox")) {
       location.hash = "#inbox";
       await sleep(1200);
     }
-    const restoreSidebar = await ensureSidebarExpanded();
+    const restoreSidebar = keepSidebar ? async () => {} : await ensureSidebarExpanded();
+    if (keepSidebar && sidebarCollapsed()) await ensureSidebarExpanded();
     let row = navLabelRow(name);
     if (!row) {
       await expandMore();
@@ -536,7 +537,7 @@
     return true;
   }
 
-  /** Create missing labels, rename to the chosen format, set visibility and color. */
+  /** Create missing labels, rename to the chosen format, then: show all → color all → final visibility. */
   async function organizeLabels({ names, labelFormat, style }) {
     stopRequested = false;
     running = true;
@@ -545,9 +546,11 @@
     const fmt = created.format;
     const report = { ...created, renamed: [], colored: [], visibility: [], errors: created.failed.map((f) => `${f.name}: ${f.error}`) };
     const current = new Map(created.labels.map((l) => [normLabel(l), l]));
+
+    // Phase A: rename plain names to the chosen style (Settings → Labels, one visit)
     for (const name of names) {
       if (stopRequested) break;
-      let real = current.get(normLabel(name));
+      const real = current.get(normLabel(name));
       if (!real) continue;
       const want = fmt.replace("{name}", name);
       if (real !== want && normLabel(real) === normLabel(name)) {
@@ -556,56 +559,63 @@
           await renameLabel(real, want);
           report.renamed.push(`${real} → ${want}`);
           current.set(normLabel(name), want);
-          real = want;
         } catch (e) {
           report.errors.push(`rename ${real}: ${e.message}`);
         }
       }
-      const st = style?.[name] || {};
-      if (st.show) {
+    }
+
+    const targets = names.map((name) => ({ name, real: current.get(normLabel(name)), st: style?.[name] || {} })).filter((t) => t.real);
+    const toColor = targets.filter((t) => t.st.color);
+
+    // Phase B: make every label we need to color visible (one Settings visit)
+    if (toColor.length && !stopRequested) {
+      progress(`Showing ${toColor.length} label(s) in the sidebar so they can be colored…`);
+      for (const t of toColor) {
+        if (stopRequested) break;
         try {
-          await setLabelVisibility(real, st.show);
-          report.visibility.push(`${real}: ${st.show}`);
+          await setLabelVisibility(t.real, "show");
         } catch (e) {
-          report.errors.push(`visibility ${real}: ${e.message}`);
+          report.errors.push(`show ${t.real}: ${e.message}`);
         }
       }
+      location.hash = "#inbox";
+      await sleep(1500);
     }
-    // colors need the sidebar; "hidden" labels can't be reached there, so do visible ones
-    for (const name of names) {
-      if (stopRequested) break;
-      const real = current.get(normLabel(name));
-      const st = style?.[name] || {};
-      if (!real || !st.color || st.show === "hide") continue;
-      progress(`Coloring "${real}" ${st.color}…`);
+
+    // Phase C: color everything in one sidebar session
+    if (toColor.length && !stopRequested) {
+      let restoreSidebar = async () => {};
       try {
-        if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color}`);
+        restoreSidebar = await ensureSidebarExpanded();
       } catch (e) {
-        if (!/not visible in the sidebar/i.test(e.message)) {
-          report.errors.push(`color ${real}: ${e.message}`);
-          continue;
-        }
-        // hidden label: make it visible, color, then restore its visibility
+        report.errors.push(`sidebar: ${e.message}`);
+      }
+      await expandMore().catch(() => {});
+      for (const t of toColor) {
+        if (stopRequested) break;
+        progress(`Coloring "${t.real}" ${t.st.color}…`);
         try {
-          progress(`"${real}" is hidden – showing it temporarily to set the color…`);
-          await setLabelVisibility(real, "show");
-          location.hash = "#inbox";
-          await sleep(1500);
-          const restore = await ensureSidebarExpanded().catch(() => async () => {});
-          await waitFor(() => navLabelRow(real), { timeout: 6000 });
-          await restore();
-          if (await setLabelColor(real, st.color)) report.colored.push(`${real}: ${st.color} (via temporary show)`);
-        } catch (e2) {
-          report.errors.push(`color ${real}: ${e2.message}`);
-        } finally {
-          try {
-            await setLabelVisibility(real, st.show || "unread");
-          } catch (e3) {
-            report.errors.push(`restore visibility ${real}: ${e3.message}`);
-          }
+          if (await setLabelColor(t.real, t.st.color, { keepSidebar: true })) report.colored.push(`${t.real}: ${t.st.color}`);
+        } catch (e) {
+          report.errors.push(`color ${t.real}: ${e.message}`);
         }
       }
+      await restoreSidebar().catch(() => {});
     }
+
+    // Phase D: final visibility for every label (one Settings visit)
+    for (const t of targets) {
+      if (stopRequested) break;
+      if (!t.st.show) continue;
+      try {
+        await setLabelVisibility(t.real, t.st.show);
+        report.visibility.push(`${t.real}: ${t.st.show}`);
+      } catch (e) {
+        report.errors.push(`visibility ${t.real}: ${e.message}`);
+      }
+    }
+
     report.labels = [...current.values()];
     running = false;
     await browser.storage.local.set({ lastToolReport: { at: Date.now(), tool: "organizeLabels", ...report }, knownLabels: report.labels }).catch(() => {});
