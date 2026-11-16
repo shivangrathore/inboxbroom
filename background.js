@@ -5,7 +5,7 @@
  */
 
 const ALARM_NAME = "auto-clean";
-const DEFAULTS_VERSION = 7;
+const DEFAULTS_VERSION = 8;
 
 const DEFAULT_AI_PROMPT = `You triage a personal Gmail inbox for {{persona}}. For each email decide a verdict: "junk" (safe to remove unread) or "keep", plus a confidence 0-100.
 
@@ -117,8 +117,9 @@ const DEFAULT_SETTINGS = {
     suggestedLabels: ["Finance", "Orders", "Support", "Security", "Dev", "Work", "Travel", "Government", "Personal"], // created on first use if missing
     ignoreLabels: ["Notes", "Cleaned"], // existing labels the AI must not use
   },
-  // per-label expiry in days; 0 / missing = keep forever. Applied as bulk delete rules on every run.
-  retention: { Orders: 30, Security: 7, Support: 45, Dev: 30, Travel: 120 },
+  // Inbox expiry in days per label, "*" = anything else in the inbox. Inbox-only: archived mail is never touched,
+  // starred/important never touched. 0 / missing = keep in inbox forever.
+  retention: { Security: 7, Orders: 30, Dev: 30, Support: 45, Work: 60, Personal: 60, Finance: 90, Government: 90, Travel: 120, "*": 90 },
   retentionEnabled: true,
   history: [],
   defaultsVersion: DEFAULTS_VERSION,
@@ -128,18 +129,33 @@ const labelQueryName = (l) => l.trim().replace(/\s+/g, "-");
 
 function retentionRules(settings) {
   if (!settings.retentionEnabled) return [];
-  return Object.entries(settings.retention || {})
-    .filter(([, d]) => Number(d) > 0)
-    .map(([label, d]) => ({
-      id: `retention:${label}`,
+  const entries = Object.entries(settings.retention || {}).filter(([, d]) => Number(d) > 0);
+  const labeled = entries.filter(([l]) => l !== "*");
+  const rules = labeled.map(([label, d]) => ({
+    id: `retention:${label}`,
+    type: "query",
+    synthetic: true,
+    name: `Inbox: ${label} older than ${Number(d)} days`,
+    query: `label:${labelQueryName(label)} older_than:${Number(d)}d -is:starred -is:important`,
+    action: "delete",
+    inboxOnly: true,
+    enabled: true,
+  }));
+  const star = entries.find(([l]) => l === "*");
+  if (star) {
+    const excl = labeled.length ? ` -{${labeled.map(([l]) => `label:${labelQueryName(l)}`).join(" ")}}` : "";
+    rules.push({
+      id: "retention:*",
       type: "query",
       synthetic: true,
-      name: `${label} older than ${Number(d)} days`,
-      query: `label:${labelQueryName(label)} older_than:${Number(d)}d -is:starred -is:important`,
+      name: `Inbox: anything else older than ${Number(star[1])} days`,
+      query: `older_than:${Number(star[1])}d -is:starred -is:important${excl}`,
       action: "delete",
-      inboxOnly: false,
+      inboxOnly: true,
       enabled: true,
-    }));
+    });
+  }
+  return rules;
 }
 
 // queries of older default rule versions -> upgraded silently if the user never edited them
@@ -193,6 +209,7 @@ async function migrate() {
       }
       return out;
     });
+    if (v < 8 && JSON.stringify(s.retention) === JSON.stringify({ Orders: 30, Security: 7, Support: 45, Dev: 30, Travel: 120 })) s.retention = { ...DEFAULT_SETTINGS.retention };
     const have = new Set(s.rules.map((r) => r.id));
     for (const d of DEFAULT_SETTINGS.rules) if (!have.has(d.id)) s.rules.push({ ...d });
     s.defaultsVersion = DEFAULTS_VERSION;

@@ -17,7 +17,7 @@ Nothing is ever permanently deleted: junk goes to Trash (30-day undo), kept mail
 | **Bulk rules** | A Gmail search per rule (`category:promotions -is:starred`). Everything matching is selected via *"Select all N conversations"* and trashed in one shot, thousands at a time. |
 | **AI triage** | For the rest of the inbox: sender + subject + preview of each row go to a local Ollama model, which returns *junk / keep* with a confidence and a reason. Only junk rows are ticked and trashed. |
 | **Labels** | Every kept mail gets one label, chosen from **your existing Gmail labels** first, then a fallback set (Finance, Orders, Support, Security, Dev, Work, Travel, Government, Personal) created on first use. Uses Gmail's *Label as* menu. |
-| **Retention** | Per-label lifetime (Orders 30 d, Security 7 d, Support 45 d, Dev 30 d, Travel 120 d by default). Expired mail is trashed on the next run, after appearing in the preview. |
+| **Retention** | The inbox is a queue, the archive is forever. Each label has an inbox lifetime (Security 7 d, Orders/Dev 30 d, Support 45 d, Work/Personal 60 d, Finance/Government 90 d, Travel 120 d) plus a catch-all for unlabeled inbox mail (90 d). Expired mail is trashed on the next run, after appearing in the preview. Archived, starred and important mail is never touched: archive anything you want to keep. |
 | **Unsubscribe** | Reads Gmail's *Manage subscriptions* page; the AI suggests senders that add no value. Confirm clicks Gmail's own Unsubscribe. Banks, brokers, shops, hosting, GitHub, telecom, government are never pre-selected. |
 | **Review page** | Full-tab table: filter, group by sender, flip verdicts, change labels, "always delete / always keep" per sender, tick/untick anything, then one Confirm button with exact counts. |
 | **Memory** | Verdicts cached per thread; after 2 consistent junk verdicts a sender is auto-junk with no model call. Your overrides win. Exportable AI log for tuning. |
@@ -91,7 +91,7 @@ The whole system prompt is editable.
 | AI triage of the rest | `in:inbox -is:starred -is:important -category:promotions -category:social` minus already-labeled mail | Trash junk, label kept |
 | OTPs & login alerts > 7 d | `older_than:7d subject:(otp OR "verification code" OR "security alert" OR "new sign-in" …)` | Trash |
 | Unsubscribe-able > 30 d (off) | `unsubscribe older_than:30d -is:starred -is:important` | Trash |
-| Retention | `label:<X> older_than:<N>d` per configured label | Trash |
+| Retention | `in:inbox label:<X> older_than:<N>d -is:starred -is:important` per label, plus `in:inbox older_than:90d` minus those labels | Trash |
 
 All editable in Settings. Rules are plain [Gmail search](https://support.google.com/mail/answer/7190).
 

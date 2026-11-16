@@ -83,10 +83,10 @@ function renderRules(counts = {}) {
     sw.append(cb, document.createElement("span"));
     const name = document.createElement("div");
     name.className = "name";
-    name.textContent = "Expire labeled mail";
+    name.textContent = "Expire inbox mail (archive = keep)";
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = ret.map(([l, d]) => `${l} ${d}d`).join(" · ") + " → Trash";
+    meta.textContent = ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " → Trash";
     const pill = document.createElement("span");
     pill.className = "pill";
     pill.textContent = "bulk";

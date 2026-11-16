@@ -50,7 +50,7 @@ function readRules() {
 
 function retentionRow(label = "", days = "") {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders"></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="small danger del">✕</button></td>`;
+  tr.innerHTML = `<td><input type="text" class="rl" placeholder="Orders" title='"*" = anything else in the inbox'></td><td><input type="number" class="rd" min="0" max="3650" style="width:6em"></td><td><button class="small danger del">✕</button></td>`;
   tr.querySelector(".rl").value = label;
   tr.querySelector(".rd").value = days;
   tr.querySelector(".del").onclick = () => tr.remove();
@@ -75,7 +75,7 @@ async function load() {
   $("retentionEnabled").checked = s.retentionEnabled !== false;
   const rb = document.querySelector("#retention tbody");
   rb.innerHTML = "";
-  const labelsForRet = [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {})])];
+  const labelsForRet = [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*"), "*"])];
   for (const l of labelsForRet) rb.appendChild(retentionRow(l, s.retention?.[l] || ""));
   $("returnToInbox").checked = s.returnToInbox !== false;
   $("autoClean").checked = !!s.autoClean;

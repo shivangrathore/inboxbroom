@@ -94,7 +94,7 @@ OLLAMA_ORIGINS="moz-extension://*" ollama serve
 
     <section>
       <h2>Expire labeled mail</h2>
-      <p class="muted">Mail the AI labeled is kept in the inbox. Give a label a lifetime and anything with that label older than N days is moved to Trash on the next run (shown in the preview first). Blank or 0 = keep forever.</p>
+      <p class="muted">The inbox is a queue, the archive is forever. Anything still <em>in the inbox</em> with a label older than its lifetime is moved to Trash on the next run (shown in the preview first). <code>*</code> = inbox mail without any of these labels. Archived mail, starred and important mail are never touched. Blank or 0 = keep in inbox forever.</p>
       <label class="inline"><input id="retentionEnabled" type="checkbox" /> Enabled</label>
       <table id="retention"><thead><tr><th>Label</th><th>Delete after (days)</th><th></th></tr></thead><tbody></tbody></table>
       <button id="addRetention" class="small">+ Add label</button>
