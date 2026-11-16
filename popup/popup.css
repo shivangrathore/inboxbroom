@@ -18,3 +18,9 @@ main { flex: 1; overflow-y: auto; padding: 12px; }
 .count { font-weight: 700; color: var(--fg); }
 .ldot { width: 12px; height: 12px; border-radius: 3px; flex: none; background: var(--input); }
 .tabs { flex: none; }
+
+.card-h.compact { padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: center; }
+.card-h.compact b { font-weight: 600; font-size: 13px; }
+.rule-row .t { font-weight: 500; font-size: 13.5px; }
+.rule-row .meta { font-size: 12px; color: var(--muted-foreground); }
+.rule-row .meta .act-del, .rule-row .meta .act-keep { font-weight: 500; }

@@ -73,6 +73,12 @@ function toggleRow({ on, title, meta, pill, onchange, off }) {
   return row;
 }
 
+function actionSpan(r) {
+  const a = document.createElement("span");
+  a.className = r.action === "delete" ? "act-del" : "act-keep";
+  a.textContent = r.action === "delete" ? "Trash" : r.action === "label" ? `Label ${r.label || ""}`.trim() : "Archive";
+  return a;
+}
 function renderRules() {
   const root = $("rules");
   root.innerHTML = "";
@@ -81,13 +87,7 @@ function renderRules() {
       toggleRow({
         on: !!r.enabled,
         title: r.name,
-        meta: (() => {
-          const a = document.createElement("span");
-          a.className = r.action === "delete" ? "act-del" : "act-keep";
-          a.textContent = ACTION_LABEL(r);
-          return [document.createTextNode(`${r.type === "ai" ? "AI" : "search"} `), a, document.createTextNode(` · ${r.query}`)];
-        })(),
-        pill: r.type === "ai" ? "AI" : "bulk",
+        meta: [document.createTextNode(`${r.type === "ai" ? "AI" : "Bulk"} · `), actionSpan(r)],
         onchange: async (v) => {
           r.enabled = v;
           await send("saveSettings", { patch: { rules: settings.rules } });
@@ -95,21 +95,23 @@ function renderRules() {
       })
     );
   }
+  const retRoot = $("retentionList");
+  retRoot.innerHTML = "";
   const ret = Object.entries(settings.retention || {}).filter(([, d]) => Number(d) > 0);
+  $("retentionMeta").textContent = ret.length ? `${ret.length} label${ret.length > 1 ? "s" : ""}` : "";
   if (ret.length) {
-    root.appendChild(
+    retRoot.appendChild(
       toggleRow({
         on: !!settings.retentionEnabled,
-        title: "Expire inbox mail (archive = keep)",
-        meta: (() => { const a = document.createElement("span"); a.className = "act-del"; a.textContent = "→ Trash"; return [document.createTextNode(ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " "), a]; })(),
-        pill: "bulk",
+        title: "Expire inbox mail after its label's lifetime",
+        meta: [document.createTextNode(ret.map(([l, d]) => `${l === "*" ? "other" : l} ${d}d`).join(" · ") + " · "), (() => { const a = document.createElement("span"); a.className = "act-del"; a.textContent = "Trash"; return a; })()],
         onchange: async (v) => {
           settings.retentionEnabled = v;
           await send("saveSettings", { patch: { retentionEnabled: v } });
         },
       })
     );
-  }
+  } else retRoot.innerHTML = `<div class="empty">No expiry configured.</div>`;
 }
 
 async function renderLabels() {

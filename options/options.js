@@ -44,48 +44,75 @@ function readRetention() {
 
 function ruleRow(rule = {}) {
   const card = document.createElement("div");
-  card.className = "rule-card";
+  card.className = "rule";
   card.dataset.id = rule.id || `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   card.innerHTML = `
-    <div class="rc-top">
-      <label class="switch" title="Enabled"><input type="checkbox" class="on"><span></span></label>
-      <input type="text" class="name" placeholder="Rule name">
-      <select class="type" title="Rule type"><option value="query">Bulk</option><option value="ai">AI</option></select>
-      <select class="action" title="Action"><option value="delete">Delete (Trash)</option><option value="archive">Archive</option><option value="label">Label + archive</option></select>
-      <input type="text" class="label" placeholder="Label name" spellcheck="false">
-      <button class="btn icon del" title="Remove rule">✕</button>
+    <div class="rule-row">
+      <label class="switch sm" title="Enabled"><input type="checkbox" class="on"><span></span></label>
+      <div class="rule-main">
+        <div class="rule-name"></div>
+        <div class="rule-q mono"></div>
+      </div>
+      <span class="badge rule-type"></span>
+      <span class="rule-act"></span>
+      <button class="btn icon edit" title="Edit rule" aria-label="Edit rule"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button>
     </div>
-    <textarea class="query" rows="2" spellcheck="false" placeholder="Gmail search, e.g. category:promotions -is:starred"></textarea>
-    <div class="rc-bottom">
-      <label class="inline"><input type="checkbox" class="inbox"> Inbox only (forces <code>in:inbox</code>)</label>
-      <label class="inline pages-wrap">Pages to scan <input type="number" class="pages" min="1" max="40"></label>
-      <span class="small muted hint"></span>
+    <div class="rule-editor hidden">
+      <div class="ed-grid">
+        <div class="field"><label>Name</label><input type="text" class="name" placeholder="Rule name"></div>
+        <div class="field"><label>Type</label><select class="type"><option value="query">Bulk: act on everything the search returns</option><option value="ai">AI: score each mail, act on junk, label the rest</option></select></div>
+        <div class="field"><label>Action</label><select class="action"><option value="delete">Delete (Trash, 30-day undo)</option><option value="archive">Archive</option><option value="label">Label + archive</option></select></div>
+        <div class="field lab-wrap"><label>Label</label><input type="text" class="label" placeholder="Label name" spellcheck="false"></div>
+        <div class="field span2"><label>Gmail search</label><textarea class="query" rows="1" spellcheck="false" placeholder="e.g. category:promotions -is:starred"></textarea></div>
+      </div>
+      <div class="ed-foot">
+        <label class="opt"><span class="switch sm"><input type="checkbox" class="inbox"><span></span></span><span>Inbox only</span><span class="muted">· archived mail is never touched</span></label>
+        <label class="opt pages-wrap"><span>Pages to scan</span><input type="number" class="pages" min="1" max="40"></label>
+        <button class="btn sm danger-outline del">Remove rule</button>
+      </div>
     </div>`;
-  card.querySelector(".on").checked = rule.enabled !== false;
-  card.querySelector(".type").value = rule.type === "ai" ? "ai" : "query";
-  card.querySelector(".name").value = rule.name || "";
-  card.querySelector(".query").value = rule.query || "";
-  card.querySelector(".action").value = rule.action === "trash" ? "delete" : rule.action || "delete";
-  card.querySelector(".label").value = rule.label || "";
-  card.querySelector(".inbox").checked = rule.inboxOnly !== false;
-  card.querySelector(".pages").value = rule.maxPages || 10;
+  const q = (sel) => card.querySelector(sel);
+  q(".on").checked = rule.enabled !== false;
+  q(".type").value = rule.type === "ai" ? "ai" : "query";
+  q(".name").value = rule.name || "";
+  q(".query").value = rule.query || "";
+  q(".action").value = rule.action === "trash" ? "delete" : rule.action || "delete";
+  q(".label").value = rule.label || "";
+  q(".inbox").checked = rule.inboxOnly !== false;
+  q(".pages").value = rule.maxPages || 10;
+  const grow = () => { const t = q(".query"); t.style.height = "auto"; t.style.height = Math.max(40, t.scrollHeight + 2) + "px"; };
   const sync = () => {
-    const ai = card.querySelector(".type").value === "ai";
-    card.querySelector(".pages-wrap").classList.toggle("hidden", !ai);
-    card.querySelector(".label").classList.toggle("hidden", card.querySelector(".action").value !== "label");
-    card.querySelector(".hint").textContent = ai ? "AI: scores each mail; junk is removed, kept mail is labeled." : "Bulk: everything the search returns gets the action.";
-    card.classList.toggle("off", !card.querySelector(".on").checked);
+    const ai = q(".type").value === "ai";
+    const act = q(".action").value;
+    q(".pages-wrap").classList.toggle("hidden", !ai);
+    q(".lab-wrap").classList.toggle("hidden", act !== "label");
+    q(".rule-name").textContent = q(".name").value.trim() || "Untitled rule";
+    q(".rule-q").textContent = q(".query").value.trim().replace(/\s+/g, " ") || "no search yet";
+    const tb = q(".rule-type");
+    tb.textContent = ai ? "AI" : "Bulk";
+    tb.className = `badge rule-type ${ai ? "label" : "neutral"}`;
+    const ab = q(".rule-act");
+    ab.textContent = act === "delete" ? "Trash" : act === "label" ? `Label ${q(".label").value.trim() || "…"}` : "Archive";
+    ab.className = `rule-act ${act === "delete" ? "act-del" : "act-keep"}`;
+    card.classList.toggle("off", !q(".on").checked);
   };
-  card.querySelector(".type").onchange = sync;
-  card.querySelector(".action").onchange = sync;
-  card.querySelector(".on").onchange = sync;
+  for (const el of card.querySelectorAll("input, select, textarea")) el.addEventListener("input", sync);
+  for (const el of card.querySelectorAll("select, .on")) el.addEventListener("change", sync);
+  q(".query").addEventListener("input", grow);
+  q(".on").addEventListener("click", (e) => e.stopPropagation());
+  q(".rule-row").addEventListener("click", (e) => {
+    if (e.target.closest(".switch")) return;
+    const open = q(".rule-editor").classList.toggle("hidden");
+    card.classList.toggle("open", !open);
+    if (!open) { grow(); q(".name").focus(); }
+  });
+  q(".del").onclick = () => card.remove();
   sync();
-  card.querySelector(".del").onclick = () => card.remove();
   return card;
 }
 
 function readRules() {
-  return [...document.querySelectorAll("#rulesList .rule-card")]
+  return [...document.querySelectorAll("#rulesList .rule")]
     .map((c) => ({
       id: c.dataset.id,
       type: c.querySelector(".type").value,
@@ -230,7 +257,7 @@ $("addRetention").onclick = () => document.querySelector("#retention tbody").app
 $("addRule").onclick = () => {
   const c = ruleRow({ type: "query", action: "delete", enabled: true });
   document.querySelector("#rulesList").appendChild(c);
-  c.querySelector(".name").focus();
+  c.querySelector(".rule-row").click();
 };
 $("save").onclick = save;
 $("aiReset").onclick = () => ($("aiPrompt").value = defaultPrompt);
@@ -306,11 +333,11 @@ async function setupChecks() {
     $("toolResult").style.whiteSpace = "pre-wrap";
   }
   const gm = await send("gmailTab").catch(() => false);
-  $("chkGmail").className = `check ${gm ? "ok" : "bad"}`;
+  $("chkGmail").className = `check card ${gm ? "ok" : "bad"}`;
   $("chkGmail").querySelector("span:not(.dot)").textContent = gm ? "Open and reachable." : "No Gmail tab open. Open mail.google.com.";
   const s = await send("getSettings");
   const r = await send("aiTest").catch((e) => ({ ok: false, error: e.message }));
-  $("chkOllama").className = `check ${r.ok ? "ok" : "bad"}`;
+  $("chkOllama").className = `check card ${r.ok ? "ok" : "bad"}`;
   $("chkOllama").querySelector("span:not(.dot)").textContent = r.ok ? `${r.model} answered in ${r.ms} ms.` : `${r.error}`;
   if (gm) {
     try {
@@ -318,7 +345,7 @@ async function setupChecks() {
       const want = (s.ai.suggestedLabels || []).map((l) => l.toLowerCase());
       const have = labels.map((l) => l.replace(/^\[|\]$/g, "").toLowerCase());
       const missing = want.filter((w) => !have.includes(w));
-      $("chkLabels").className = `check ${missing.length ? "bad" : "ok"}`;
+      $("chkLabels").className = `check card ${missing.length ? "bad" : "ok"}`;
       $("chkLabels").querySelector("span:not(.dot)").textContent = missing.length ? `Missing: ${missing.join(", ")}` : `All ${want.length} present (${labels.length} labels total).`;
     } catch (e) {
       $("chkLabels").querySelector("span:not(.dot)").textContent = "Could not read labels (reload the Gmail tab?).";
@@ -330,8 +357,22 @@ $("chkLabelsBtn").onclick = () => $("toolOrganizeLabels").click();
 
 load().then(setupChecks);
 
-// side nav: plain anchors; highlight on click
-for (const a of document.querySelectorAll("#nav a")) a.addEventListener("click", () => document.querySelectorAll("#nav a").forEach((x) => x.classList.toggle("active", x === a)));
+// side nav: highlight the section nearest the top (plain scroll handler, throttled)
+(() => {
+  const links = [...document.querySelectorAll("#nav a")];
+  const secs = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+  let ticking = false;
+  const update = () => {
+    ticking = false;
+    const y = window.scrollY + 120;
+    let cur = secs[0];
+    for (const sec of secs) if (sec.offsetTop <= y) cur = sec;
+    links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + cur.id));
+  };
+  window.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+  for (const a of links) a.addEventListener("click", () => setTimeout(update, 50));
+  update();
+})();
 
 for (const b of document.querySelectorAll("#themeSeg button")) b.onclick = () => {
   document.querySelectorAll("#themeSeg button").forEach((x) => x.classList.toggle("active", x === b));
