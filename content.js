@@ -167,11 +167,16 @@
   }
 
   function typeInto(input, value) {
+    // never dispatch real key events: Gmail keyboard shortcuts (Enter, ], o …) would act on the mailbox
     input.focus();
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
     setter.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: value.slice(-1) }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Unidentified", code: "" }));
+  }
+  function closeMenus() {
+    // Escape is safe: Gmail only closes menus/dialogs on it
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
   }
 
   async function waitFor(fn, { timeout = 15000, interval = 150 } = {}) {
@@ -223,7 +228,7 @@
         const t = txt(it);
         if (t && !/^(create new|manage labels|apply)$/i.test(t)) names.push(t.replace(/\s*\(\d+\)$/, ""));
       }
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      closeMenus();
       await sleep(300);
     }
     // deselect
@@ -496,7 +501,7 @@
       await restoreSidebar();
       throw new Error(`label "${name}" not visible in the sidebar even after expanding More (nav width ${Math.round(navEl()?.getBoundingClientRect().width || 0)}px). Sidebar labels seen: ${labelsFromNav().slice(0, 15).join(", ")}`);
     }
-    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    closeMenus();
     await sleep(250);
     row.scrollIntoView({ block: "center" });
     row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
@@ -512,7 +517,7 @@
       click(dots);
       menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 3000 });
       if (!menu) {
-        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        closeMenus();
         await sleep(400);
         row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
         await sleep(200);
@@ -544,7 +549,7 @@
       const ok = dialogOk();
       if (ok) click(ok);
     }
-    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    closeMenus();
     await restoreSidebar();
     return true;
   }
@@ -664,7 +669,7 @@
       click(direct);
       const m = await waitFor(labelMenuOpen, { timeout: 4000 });
       if (m) return m;
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      closeMenus();
       await sleep(300);
     }
     const more = toolbarButton("More") || toolbarButtons().find((b) => b.getAttribute("aria-haspopup") === "true" && /more|options/i.test(btnLabel(b)));
@@ -695,10 +700,11 @@
     const exact = items().find((it) => txt(it).replace(/\s*\(\d+\)$/, "").toLowerCase() === label.toLowerCase());
     if (exact) {
       if (exact.getAttribute("aria-checked") !== "true") click(exact);
-      await sleep(300);
+      await sleep(400);
+      // classic menu shows an Apply button after ticking; the simplified submenu applies immediately
       const apply = qa('[role="button"], div.J-N, button', menu).find((b) => /^apply$/i.test(txt(b)));
       if (apply) click(apply);
-      else menu.querySelector("input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+      else if (labelMenuOpen()) closeMenus();
     } else {
       const create = items().find((it) => /create new/i.test(txt(it)));
       if (!create) throw new Error(`Label "${label}" not found and no "Create new". ${diag()}`);
@@ -807,7 +813,7 @@
         if (d2) {
           const no = dialogButton(/^(no thanks|cancel|not now|close|done|ok)$/i);
           if (no) click(no);
-          else document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          else closeMenus();
           await sleep(400);
         }
         out.push({ email, status: "done" });
@@ -815,7 +821,7 @@
         const site = dialogButton(/go to website|visit|open/i);
         const cancel = dialogButton(/^(cancel|close|no thanks|not now)$/i);
         if (cancel) click(cancel);
-        else document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        else closeMenus();
         await sleep(400);
         out.push({ email, status: site ? "needs-website" : "no-confirm" });
       }
@@ -926,7 +932,7 @@
       } catch (e) {
         // fall back to plain archive so the run still cleans; surface the warning
         rule.__warn = `Label "${label}" failed (${e.message}); archived instead.`;
-        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        closeMenus();
         await sleep(300);
       }
     }
