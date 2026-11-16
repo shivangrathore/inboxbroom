@@ -82,7 +82,9 @@
       bog?.getAttribute("data-thread-id") ||
       tr.querySelector("[data-legacy-thread-id]")?.getAttribute("data-legacy-thread-id") ||
       `h:${email}|${subject}`;
-    return { id, email, sender, subject, snippet, date, unread: tr.classList.contains("zE") };
+    const marker = tr.querySelector('td.WA [aria-label], [role="img"][aria-label^="Important"], [aria-label^="Important"]');
+    const important = !!marker && /^important/i.test(marker.getAttribute("aria-label") || "");
+    return { id, email, sender, subject, snippet, date, unread: tr.classList.contains("zE"), important };
   }
   const rowCheckbox = (tr) => tr.querySelector('[role="checkbox"]') || tr.querySelector("td.oZ-x3") || tr.firstElementChild;
 
@@ -1017,7 +1019,12 @@
         const verdicts = await browser.runtime.sendMessage({ type: "aiClassify", items: toAsk, rule, labels: ctx.labels });
         if (verdicts?.error) throw new Error(verdicts.error);
         const merged = {};
+        const importantIds = new Set(toAsk.filter((p) => p.important).map((p) => p.id));
         for (const v of verdicts) {
+          if (v.junk && importantIds.has(v.id) && v.source !== "manual") {
+            v.junk = false;
+            v.reason = `${v.reason || ""} – kept: Gmail marked it important`.replace(/^ – /, "");
+          }
           const prev = cache[v.id];
           const relabelOnly = prev && !prev.junk && !prev.label && !v.junk;
           merged[v.id] = cache[v.id] = relabelOnly
