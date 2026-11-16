@@ -211,13 +211,12 @@
     const cb = rowCheckbox(trs[0]);
     click(cb);
     await sleep(300);
-    const btn = await waitFor(() => toolbarButton("Label"), { timeout: 4000 });
-    if (!btn) {
-      click(cb);
-      return [];
+    let menu = null;
+    try {
+      menu = await openLabelMenu();
+    } catch (e) {
+      console.warn("[Inbox Broom] label menu:", e.message);
     }
-    click(btn);
-    const menu = await waitFor(() => qa('div[role="menu"]').find((m) => m.querySelector("input")), { timeout: 4000 });
     const names = [];
     if (menu) {
       for (const it of qa('[role="menuitemcheckbox"], [role="menuitem"]', menu)) {
@@ -655,13 +654,41 @@
     }
   }
 
-  /** Gmail "Labels" menu → tick label → Apply. Keeps mail where it is. Creates the label if missing. */
+  const labelMenuOpen = () => qa('div[role="menu"]').find((m) => m.querySelector("input") && /label/i.test(txt(m)) && !/move to/i.test(txt(m).slice(0, 20)));
+
+  /** Opens Gmail's "Label as" menu for the current selection. Works with both toolbars:
+   *  advanced (Labels button) and simplified (⋮ More → Label as ▸). Returns the menu element with the search input. */
+  async function openLabelMenu() {
+    const direct = toolbarButton("Label");
+    if (direct) {
+      click(direct);
+      const m = await waitFor(labelMenuOpen, { timeout: 4000 });
+      if (m) return m;
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await sleep(300);
+    }
+    const more = toolbarButton("More") || toolbarButtons().find((b) => b.getAttribute("aria-haspopup") === "true" && /more|options/i.test(btnLabel(b)));
+    if (!more) throw new Error(`Neither a "Labels" button nor a "More" (⋮) button in the toolbar. Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
+    click(more);
+    const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label as/i.test(txt(m))), { timeout: 4000 });
+    if (!menu) throw new Error(`"More" menu did not open or has no "Label as" (menus: ${qa('div[role="menu"]').map((m) => txt(m).slice(0, 50)).join(" || ") || "none"})`);
+    const item = qa('[role="menuitem"]', menu).find((it) => /^label as/i.test(txt(it))) || qa("div, span", menu).find((it) => /^label as$/i.test(txt(it)));
+    if (!item) throw new Error('"Label as" item not found in More menu');
+    item.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    item.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await sleep(300);
+    let sub = labelMenuOpen();
+    if (!sub) {
+      click(item);
+      sub = await waitFor(labelMenuOpen, { timeout: 4000 });
+    }
+    if (!sub) throw new Error(`"Label as" submenu did not open (menus: ${qa('div[role="menu"]').map((m) => txt(m).slice(0, 40)).join(" || ")})`);
+    return sub;
+  }
+
+  /** Gmail "Label as" menu → tick label → Apply. Keeps mail where it is. Creates the label if missing. */
   async function labelAs(label) {
-    const btn = await waitFor(() => toolbarButton("Label"), { timeout: 6000 });
-    if (!btn) throw new Error(`"Labels" button not found. Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
-    click(btn);
-    const menu = await waitFor(() => qa('div[role="menu"]').find((m) => m.querySelector("input")), { timeout: 5000 });
-    if (!menu) throw new Error(`"Labels" menu did not open after clicking "${btnLabel(btn).slice(0, 40)}". Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
+    const menu = await openLabelMenu();
     typeInto(menu.querySelector("input"), label);
     await sleep(600);
     const items = () => qa('[role="menuitemcheckbox"], [role="menuitem"], [role="option"]', menu);
