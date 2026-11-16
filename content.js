@@ -382,7 +382,14 @@
       try { n = decodeURIComponent(m?.[1] || "").replace(/\+/g, " "); } catch {}
       return n === name || txt(x) === name;
     });
-    return a ? a.closest('div[role="treeitem"], div.aim, tr, div') : null;
+    if (!a) return null;
+    // climb to the row that owns the ⋮ options button (Gmail: div.TO inside div.aim)
+    let el = a;
+    for (let i = 0; i < 8 && el && el !== document.body; i++) {
+      el = el.parentElement;
+      if (el && (el.querySelector(".pM") || el.querySelector('[role="button"]') || el.classList.contains("TO") || el.classList.contains("aim"))) return el;
+    }
+    return a.closest(".TO, .aim, div[role='treeitem'], tr") || a.parentElement;
   }
   async function setLabelColor(name, colorName) {
     const target = GMAIL_COLORS[colorName];
@@ -396,7 +403,10 @@
     row.scrollIntoView({ block: "center" });
     row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     await sleep(300);
-    const dots = [...row.querySelectorAll('[role="button"]')].find((b) => /options|more|menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "")) || row.querySelector('[role="button"]:not([aria-label*="Create"])');
+    const dots =
+      row.querySelector(".pM") ||
+      [...row.querySelectorAll('[role="button"]')].find((b) => /options|more|menu/i.test(b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "")) ||
+      row.querySelector('[role="button"]:not([aria-label*="Create"])');
     if (!dots) throw new Error(`no options button on "${name}" row (buttons: ${[...row.querySelectorAll('[role="button"]')].map((b) => b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || txt(b) || b.className.slice(0, 20)).join(" | ") || "none"}; row tag ${row.tagName}.${String(row.className).slice(0, 30)})`);
     click(dots);
     const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label colou?r/i.test(txt(m))), { timeout: 4000 });
