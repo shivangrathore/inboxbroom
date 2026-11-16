@@ -1,0 +1,65 @@
+{
+  "manifest_version": 3,
+  "name": "Inbox Broom",
+  "version": "1.2.0",
+  "description": "Sweeps junk out of Gmail from Firefox: bulk rules plus optional local AI (Ollama) to delete junk, label what you keep, and unsubscribe. No API keys, nothing leaves your machine.",
+  "author": "Shivang Rathore",
+  "homepage_url": "https://github.com/shivangrathore/inboxbroom",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads",
+    "alarms",
+    "tabs",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "http://127.0.0.1:11434/*",
+    "http://localhost:11434/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.sw.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "lib/compat.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Inbox Broom",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

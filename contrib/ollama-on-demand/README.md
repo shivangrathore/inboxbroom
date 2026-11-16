@@ -2,7 +2,7 @@
 
 Instead of a permanently running Ollama daemon, these units start `ollama serve` on the first
 connection to `localhost:11434` and stop it 3 minutes after the last one. They also set
-`OLLAMA_ORIGINS=moz-extension://*` so Firefox extensions may call the API.
+`OLLAMA_ORIGINS=moz-extension://*,chrome-extension://*` so Firefox extensions may call the API.
 
 ```sh
 ./install.sh
@@ -17,5 +17,5 @@ Do not run the system-wide `ollama.service` at the same time (port clash).
 **Not on Linux / no systemd?** Just run Ollama normally with the origin allowed:
 
 ```sh
-OLLAMA_ORIGINS="moz-extension://*" ollama serve
+OLLAMA_ORIGINS="moz-extension://*,chrome-extension://*" ollama serve
 ```

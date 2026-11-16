@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
+const send = (type, extra = {}) => browser.__send({ type, ...extra });
 
 let busy = false;
 let settings = null;
@@ -180,12 +180,12 @@ async function runMode(mode) {
     setBusy(true);
     setStatus("Previewing… the review tab opens when done.", "running");
     try {
+      await browser.storage.local.set({ runError: null });
       await send("run", { mode: "scan", ruleIds });
-      setStatus("Preview ready in the review tab.", "ok");
-      window.close();
+      setStatus("Preview running in the Gmail tab. The review tab opens when it finishes.", "running");
+      setTimeout(() => window.close(), 900);
     } catch (e) {
       setStatus(friendlyError(e), "error");
-    } finally {
       setBusy(false);
     }
     return;
@@ -195,13 +195,11 @@ async function runMode(mode) {
   setBusy(true);
   setStatus("Cleaning… watch the Gmail tab.", "running");
   try {
-    const res = await send("run", { mode: "clean", ruleIds });
-    setStatus(`Cleaned ${res.total} conversation(s).${res.stopped ? " Stopped early." : ""}`, "ok");
-    settings = await send("getSettings");
-    renderHistory(settings.history || []);
+    await browser.storage.local.set({ runError: null, cleanResult: null });
+    await send("run", { mode: "clean", ruleIds });
+    // the content script reports via storage: cleanResult / runError (see onChanged below)
   } catch (e) {
     setStatus(friendlyError(e), "error");
-  } finally {
     setBusy(false);
   }
 }
@@ -246,9 +244,25 @@ $("createLabels").onclick = async () => {
   }
 };
 for (const t of document.querySelectorAll(".tab")) t.onclick = () => showPage(t.dataset.page);
-browser.storage.onChanged.addListener((ch) => {
+browser.storage.onChanged.addListener(async (ch) => {
   if (ch.progress?.newValue?.text && busy) setStatus(ch.progress.newValue.text, "running");
   if (ch.knownLabels) renderLabels();
+  if (ch.cleanResult?.newValue) {
+    const r = ch.cleanResult.newValue;
+    setStatus(`Cleaned ${r.total} conversation(s).${r.stopped ? " Stopped early." : ""}`, "ok");
+    setBusy(false);
+    settings = await send("getSettings");
+    renderHistory(settings.history || []);
+  }
+  if (ch.runError?.newValue) {
+    setStatus(`Error: ${ch.runError.newValue.message}`, "error");
+    setBusy(false);
+  }
+  if (ch.progress?.newValue && ch.progress.newValue.running === false && busy && !ch.cleanResult) {
+    // run ended without a result (stopped or preview finished)
+    const st = await send("status").catch(() => ({ running: false }));
+    if (!st.running) setBusy(false);
+  }
 });
 try { showPage(localStorage.getItem("tab") || "clean"); } catch { showPage("clean"); }
 refresh();

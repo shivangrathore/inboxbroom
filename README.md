@@ -1,8 +1,19 @@
 # Inbox Broom
 
-**Sweep junk out of Gmail, from Firefox, with a local AI. No API keys, nothing leaves your machine.**
+**Sweep junk out of Gmail, from Firefox or Chrome, with a local AI. No API keys, nothing leaves your machine.**
 
-Inbox Broom is a Firefox extension that cleans junk out of your Gmail inbox by **driving the Gmail web page the way you would by hand**.
+<p align="center">
+  <img src="docs/popup-clean.png" width="260" alt="Popup: Preview inbox" />
+  <img src="docs/popup-rules.png" width="260" alt="Popup: rules" />
+</p>
+<p align="center">
+  <img src="docs/review.png" width="820" alt="Review page before anything is deleted" />
+</p>
+<p align="center">
+  <img src="docs/settings.png" width="820" alt="Settings" />
+</p>
+
+Inbox Broom is a browser extension (Firefox, Chrome, Edge, Brave) that cleans junk out of your Gmail inbox by **driving the Gmail web page the way you would by hand**.
 No Google API, no OAuth client, no cloud: it runs searches, ticks rows, clicks Archive / Delete / Label / Unsubscribe.
 Optional **local AI** (Ollama) decides what is junk, labels what you keep, and suggests subscriptions to drop.
 
@@ -42,7 +53,7 @@ Firefox release builds only install signed add-ons. Options:
 - **Any Firefox, self-signed (free, 2 min)**: get AMO API keys at <https://addons.mozilla.org/developers/addon/api/key/>, then
   ```sh
   npm install
-  npx web-ext sign --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
+  npm run sign -- --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
   ```
   Install the signed `.xpi` from `web-ext-artifacts/`. Change the id in `manifest.json` (`browser_specific_settings.gecko.id`) to something of your own first, AMO ids are unique per account.
 
@@ -65,10 +76,10 @@ API keys are stored only in the extension's local storage. Firefox asks once for
 # 2. Pull a model (4B is plenty for this; ~2.5 GB, runs on CPU or any GPU)
 ollama pull qwen3:4b
 # 3. Allow Firefox extensions to call it
-OLLAMA_ORIGINS="moz-extension://*" ollama serve
+OLLAMA_ORIGINS="moz-extension://*,chrome-extension://*" ollama serve
 ```
 
-Running Ollama as a service instead? Add `Environment="OLLAMA_ORIGINS=moz-extension://*"` via `sudo systemctl edit ollama` and restart it.
+Running Ollama as a service instead? Add `Environment="OLLAMA_ORIGINS=moz-extension://*,chrome-extension://*"` via `sudo systemctl edit ollama` and restart it.
 On **Linux with systemd** you can also install the on-demand units in [`contrib/ollama-on-demand`](contrib/ollama-on-demand):
 Ollama starts on the first request and shuts down a few minutes after the last, so nothing idles in RAM/VRAM.
 
@@ -122,22 +133,25 @@ All editable in Settings. Rules are plain [Gmail search](https://support.google.
 
 ```sh
 npm install
-npm run lint     # web-ext lint
+npm run lint     # web-ext lint (Firefox manifest)
 npm run run      # launches Firefox with the extension loaded
-npm run build    # -> web-ext-artifacts/*.zip (rename to .xpi)
+npm run build    # -> dist/inboxbroom-firefox.xpi, dist/inboxbroom-chrome.zip, dist/chrome/ (Load unpacked)
 ```
 
 ```
-manifest.json      MV2 (Firefox)
-background.js      settings, rules, Ollama calls, sender memory, retention, review-tab plumbing
-content.js         drives Gmail: search / select / archive / delete / label / unsubscribe
-content.css        in-page progress banner
-popup/             toolbar popup
-review/            review page
-options/           settings page
-contrib/           Ollama on-demand systemd units
-.github/workflows  lint + build on push, release on v* tags
+manifest.json         Firefox (MV2)        manifest.chrome.json   Chromium (MV3)
+background.js         settings, rules, AI calls, sender memory, retention, review-tab plumbing
+background.sw.js      MV3 service-worker entry (imports lib/compat.js + background.js)
+lib/compat.js         Firefox/Chromium shim: browser global, async messaging, action API
+content.js            drives Gmail: search / select / archive / delete / label / unsubscribe
+content.css           in-page progress banner
+popup/ review/ options/ ui/   UI pages and the shared design kit
+contrib/              Ollama on-demand systemd units
+scripts/build.sh      builds both packages
+.github/workflows     lint + build on push, release on v* tags
 ```
+
+Chromium notes: the background is a service worker, so long runs live in the Gmail tab and report back through storage; the content script pings the worker every 20 s while working. Ollama must allow `chrome-extension://*` origins (see above).
 
 ## License
 

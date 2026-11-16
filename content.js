@@ -22,6 +22,11 @@
 
   let stopRequested = false;
   let running = false;
+  let keepAliveTimer = null;
+  const keepAlive = (on) => {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = on ? setInterval(() => browser.__send({ type: "keepalive" }).catch(() => {}), 20000) : null;
+  };
 
   // ------------------------------------------------------------ banner
 
@@ -1016,7 +1021,7 @@
       const toAsk = [...uniq.values()].filter((p) => !(p.id in cache) || needsLabel(cache[p.id]) || (cache[p.id].manual !== true && mode === "scan" && ctx.rescore));
       progress(`${mode === "scan" ? "Previewing" : "Cleaning"}: ${rule.name} – page ${page}/${maxPages}, AI checking ${toAsk.length} mail(s)…`);
       if (toAsk.length) {
-        const verdicts = await browser.runtime.sendMessage({ type: "aiClassify", items: toAsk, rule, labels: ctx.labels });
+        const verdicts = await browser.__send({ type: "aiClassify", items: toAsk, rule, labels: ctx.labels });
         if (verdicts?.error) throw new Error(verdicts.error);
         const merged = {};
         const importantIds = new Set(toAsk.filter((p) => p.important).map((p) => p.id));
@@ -1089,6 +1094,7 @@
   async function run({ mode, rules, allowlist, returnToInbox, aiCache, rescore, subscriptions, excludeLabels }) {
     if (running) throw new Error("Already running");
     running = true;
+    keepAlive(true);
     stopRequested = false;
     const startHash = location.hash;
     const results = [];
@@ -1136,15 +1142,18 @@
         stopped: stopRequested,
         summary: results.map((r) => ({ rule: r.rule.name, action: r.rule.action, count: r.done })),
       };
-      browser.runtime.sendMessage({ type: "runFinished", ...out }).catch(() => {});
+      if (mode === "scan") await browser.__send({ type: "scanFinished", ...out }).catch((e) => progress(`Error saving preview: ${e.message}`, "error"));
+      else await browser.__send({ type: "runFinished", ...out }).catch(() => {});
       return out;
     } catch (e) {
       progress(`Error: ${e.message}`, "error");
       console.error("[Inbox Broom]", e, diag());
       hideBanner(10000);
+      browser.storage.local.set({ runError: { at: Date.now(), mode, message: e.message } }).catch(() => {});
       throw e;
     } finally {
       running = false;
+      keepAlive(false);
       browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } }).catch(() => {});
     }
   }
@@ -1168,6 +1177,7 @@
   async function apply({ plan, allowlist, returnToInbox }) {
     if (running) throw new Error("Already running");
     running = true;
+    keepAlive(true);
     stopRequested = false;
     const startHash = location.hash;
     const summary = [];
@@ -1253,32 +1263,45 @@
       progress(`Done: ${total} deleted, ${summary.reduce((n, x) => n + (x.labeled || 0), 0)} labeled, ${unsubDone} unsubscribed.`, "ok");
       if (returnToInbox) location.hash = startHash && !startHash.startsWith("#search/") ? startHash : "#inbox";
       hideBanner(4000);
-      return { total, summary, unsubscribe: unsub, stopped: stopRequested };
+      const out = { total, summary, unsubscribe: unsub, stopped: stopRequested };
+      await browser.__send({ type: "applyFinished", ...out }).catch((e) => progress(`Error saving result: ${e.message}`, "error"));
+      return out;
     } catch (e) {
       progress(`Error: ${e.message}`, "error");
       console.error("[Inbox Broom]", e, diag());
       hideBanner(10000);
+      browser.__send({ type: "applyFinished", total: 0, summary: [], unsubscribe: [], error: e.message }).catch(() => {});
       throw e;
     } finally {
       running = false;
+      keepAlive(false);
       browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } }).catch(() => {});
     }
   }
 
-  browser.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "run") return run(msg);
-    if (msg.type === "apply") return apply(msg);
+  browser.__onMessage((msg) => {
+    if (msg.type === "run") {
+      if (running) throw new Error("Already running");
+      run(msg).catch(() => {});
+      return { started: true };
+    }
+    if (msg.type === "apply") {
+      if (running) throw new Error("Already running");
+      apply(msg).catch(() => {});
+      return { started: true };
+    }
+    if (msg.type === "stop") {
+      stopRequested = true;
+      return true;
+    }
+    if (msg.type === "ping") return { running };
+    if (msg.type === "diag") return diag();
     if (msg.type === "createLabels") return createLabels(msg);
     if (msg.type === "organizeLabels") return organizeLabels(msg);
     if (msg.type === "listLabels") {
       stopRequested = false;
       return existingLabels();
     }
-    if (msg.type === "stop") {
-      stopRequested = true;
-      return Promise.resolve(true);
-    }
-    if (msg.type === "ping") return Promise.resolve({ running });
-    if (msg.type === "diag") return Promise.resolve(diag());
+    return null;
   });
 })();

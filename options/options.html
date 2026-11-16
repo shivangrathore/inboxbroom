@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Inbox Broom – Settings</title>
+  <script src="../lib/compat.js"></script>
   <script src="../ui/theme.js"></script>
   <link rel="stylesheet" href="../ui/theme.css" />
   <link rel="stylesheet" href="options.css" />
@@ -71,8 +72,8 @@
             <div class="form-row"><div class="form-l"><div class="label">Batch · unload</div><div class="description">Mails per request; how long the model stays in memory after a run.</div></div><div class="form-c two"><input id="aiBatch" type="number" min="1" max="30" /><input id="aiKeepAlive" type="text" placeholder="1m" title="Ollama keep_alive: 0 = immediately, 1m, 5m" /></div></div>
             <details class="more"><summary>Ollama setup</summary>
               <pre>ollama pull qwen3:4b
-OLLAMA_ORIGINS="moz-extension://*" ollama serve
-# systemd: systemctl edit ollama → [Service] Environment="OLLAMA_ORIGINS=moz-extension://*"
+OLLAMA_ORIGINS="moz-extension://*,chrome-extension://*" ollama serve
+# systemd: systemctl edit ollama → [Service] Environment="OLLAMA_ORIGINS=moz-extension://*,chrome-extension://*"
 # Linux on-demand units: contrib/ollama-on-demand/install.sh</pre>
             </details>
           </div>

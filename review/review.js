@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
+const send = (type, extra = {}) => browser.__send({ type, ...extra });
 
 let preview = null;
 let settings = null;
@@ -329,7 +329,17 @@ async function confirmPlan() {
   $("rescan").disabled = true;
   $("progress").textContent = "Working in the Gmail tab…";
   try {
-    const res = await send("apply", { plan });
+    await send("apply", { plan }); // { started: true }; the result arrives through storage (applyResult)
+    const res = await new Promise((resolve, reject) => {
+      const onChange = (ch) => {
+        if (ch.applyResult?.newValue) {
+          browser.storage.onChanged.removeListener(onChange);
+          const r = ch.applyResult.newValue;
+          r.error ? reject(new Error(r.error)) : resolve(r);
+        }
+      };
+      browser.storage.onChanged.addListener(onChange);
+    });
     const warns = res.summary.filter((x) => x.warn).map((x) => x.warn);
     const un = res.unsubscribe || [];
     const unDone = un.filter((u) => u.status === "done" || u.status === "clicked").length;
@@ -360,9 +370,13 @@ async function rescan() {
   $("rescan").disabled = true;
   $("confirm").disabled = true;
   $("progress").textContent = "Previewing… watch the Gmail tab.";
-  try { await send("run", { mode: "scan", openReview: false }); await load(); $("progress").textContent = ""; }
-  catch (e) { $("progress").textContent = `Error: ${e.message}`; }
-  finally { $("rescan").disabled = false; }
+  try {
+    await browser.storage.local.set({ runError: null });
+    await send("run", { mode: "scan", openReview: false }); // lastPreview change reloads this page (onChanged below)
+  } catch (e) {
+    $("progress").textContent = `Error: ${e.message}`;
+    $("rescan").disabled = false;
+  }
 }
 
 async function load() {
@@ -388,6 +402,7 @@ $("rescan").onclick = rescan;
 let lastAt = null;
 browser.storage.onChanged.addListener((ch) => {
   if (ch.progress?.newValue?.text) $("progress").textContent = ch.progress.newValue.text;
-  if (ch.lastPreview?.newValue && ch.lastPreview.newValue.at !== lastAt) { lastAt = ch.lastPreview.newValue.at; load(); $("progress").textContent = ""; }
+  if (ch.lastPreview?.newValue && ch.lastPreview.newValue.at !== lastAt) { lastAt = ch.lastPreview.newValue.at; load(); $("progress").textContent = ""; $("rescan").disabled = false; }
+  if (ch.runError?.newValue) { $("progress").textContent = `Error: ${ch.runError.newValue.message}`; $("rescan").disabled = false; $("confirm").disabled = false; }
 });
 load().then(() => (lastAt = preview?.at || null));

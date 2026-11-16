@@ -291,13 +291,21 @@ async function applyPlan(plan) {
   const tab = await findGmailTab({ create: true });
   if (!tab) throw new Error("NO_GMAIL_TAB");
   await browser.tabs.update(tab.id, { active: true });
-  const res = await browser.tabs.sendMessage(tab.id, { type: "apply", plan, allowlist: settings.allowlist, returnToInbox: settings.returnToInbox });
-  const entry = { at: Date.now(), total: res.total, summary: res.summary };
-  const s = await getSettings();
-  await browser.storage.local.set({ settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) }, lastPreview: null });
-  return res;
+  await browser.storage.local.set({ applyResult: null });
+  return browser.__tabSend(tab.id, { type: "apply", plan, allowlist: settings.allowlist, returnToInbox: settings.returnToInbox }); // { started: true }
 }
 
+async function onApplyFinished(res) {
+  const s = await getSettings();
+  const entry = { at: Date.now(), total: res.total, summary: res.summary };
+  await browser.storage.local.set({
+    settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) },
+    lastPreview: null,
+    applyResult: { at: Date.now(), ...res },
+  });
+}
+
+/** Starts a run in the Gmail tab and returns immediately. The content script reports back with "scanFinished" / "runFinished". */
 async function runInGmail(mode, { focus = false, create = false, ruleIds = null, rescore = false } = {}) {
   const settings = await getSettings();
   const tab = await findGmailTab({ create });
@@ -308,25 +316,26 @@ async function runInGmail(mode, { focus = false, create = false, ruleIds = null,
   }
   let rules = settings.rules.filter((r) => r.enabled);
   if (ruleIds) rules = settings.rules.filter((r) => ruleIds.includes(r.id));
-  const known = (await getStore("knownLabels", []));
+  const known = await getStore("knownLabels", []);
   if (!ruleIds || ruleIds.includes("retention")) rules = [...rules, ...retentionRules(settings, known)];
   const cache = await getAiCache();
   const fmt = labelFormatFor(settings, known);
   const excludeLabels = [...new Set([...(settings.ai.suggestedLabels || []).map((l) => resolveLabel(l, known, fmt)), ...Object.values(cache).map((c) => c.label).filter(Boolean)])];
+  const payload = {
+    type: "run",
+    mode,
+    rules,
+    allowlist: settings.allowlist,
+    returnToInbox: settings.returnToInbox,
+    aiCache: cache,
+    excludeLabels,
+    rescore,
+    subscriptions: mode === "scan" && settings.ai.unsubscribe !== false,
+  };
   let lastErr;
   for (let i = 0; i < 30; i++) {
     try {
-      return await browser.tabs.sendMessage(tab.id, {
-        type: "run",
-        mode,
-        rules,
-        allowlist: settings.allowlist,
-        returnToInbox: settings.returnToInbox,
-        aiCache: cache,
-        excludeLabels,
-        rescore,
-        subscriptions: mode === "scan" && settings.ai.unsubscribe !== false,
-      });
+      return await browser.__tabSend(tab.id, payload); // content replies { started: true } at once
     } catch (e) {
       lastErr = e;
       if (!/receiving end|Could not establish/i.test(e.message)) throw e;
@@ -334,6 +343,30 @@ async function runInGmail(mode, { focus = false, create = false, ruleIds = null,
     }
   }
   throw lastErr || new Error("Gmail tab did not respond");
+}
+
+async function openReviewTab() {
+  const url = browser.runtime.getURL("review/review.html");
+  const tabs = await browser.tabs.query({ url });
+  if (tabs.length) await browser.tabs.update(tabs[0].id, { active: true });
+  else await browser.tabs.create({ url });
+}
+
+/** Called by the content script when a scan finishes: enrich subscriptions, store the preview, open the review tab. */
+async function onScanFinished(res, { openReview = true } = {}) {
+  if (Array.isArray(res.labels) && res.labels.length) await browser.storage.local.set({ knownLabels: res.labels });
+  let subscriptions = res.subscriptions || null;
+  if (Array.isArray(subscriptions) && subscriptions.length) {
+    await browser.storage.local.set({ progress: { text: `AI reviewing ${subscriptions.length} subscriptions…`, at: Date.now(), running: true } });
+    try {
+      subscriptions = await aiSuggestUnsubscribe(subscriptions);
+    } catch (e) {
+      subscriptions = { error: e.message };
+    }
+    await browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } });
+  }
+  await browser.storage.local.set({ lastPreview: { at: Date.now(), results: res.results, labels: res.labels || [], subscriptions, stopped: res.stopped } });
+  if (openReview) await openReviewTab();
 }
 
 // ---------------------------------------------------------------- heuristics
@@ -812,20 +845,13 @@ async function syncAlarm(settings) {
 browser.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM_NAME) return;
   try {
-    const res = await runInGmail("clean");
-    browser.browserAction.setBadgeText({ text: "" });
-    if (res?.total > 0) {
-      browser.notifications.create({
-        type: "basic",
-        iconUrl: browser.runtime.getURL("icons/icon-96.png"),
-        title: "Inbox Broom",
-        message: `Auto-clean handled ${res.total} conversation(s).`,
-      });
-    }
+    await browser.storage.local.set({ runOptions: { openReview: false, notify: true } });
+    await runInGmail("clean");
+    browser.__action().setBadgeText({ text: "" });
   } catch (e) {
-    browser.browserAction.setBadgeText({ text: "!" });
-    browser.browserAction.setBadgeBackgroundColor({ color: "#c62828" });
-    browser.browserAction.setTitle({
+    browser.__action().setBadgeText({ text: "!" });
+    browser.__action().setBadgeBackgroundColor({ color: "#c62828" });
+    browser.__action().setTitle({
       title: e.message === "NO_GMAIL_TAB" ? "Inbox Broom – auto-clean skipped: no Gmail tab open" : `Inbox Broom – auto-clean failed: ${e.message}`,
     });
   }
@@ -835,8 +861,14 @@ async function injectIntoOpenGmailTabs() {
   const tabs = await browser.tabs.query({ url: "https://mail.google.com/*" });
   for (const t of tabs) {
     try {
-      await browser.tabs.insertCSS(t.id, { file: "content.css" });
-      await browser.tabs.executeScript(t.id, { file: "content.js" });
+      if (browser.scripting) {
+        await browser.scripting.insertCSS({ target: { tabId: t.id }, files: ["content.css"] });
+        await browser.scripting.executeScript({ target: { tabId: t.id }, files: ["lib/compat.js", "content.js"] });
+      } else {
+        await browser.tabs.insertCSS(t.id, { file: "content.css" });
+        await browser.tabs.executeScript(t.id, { file: "lib/compat.js" });
+        await browser.tabs.executeScript(t.id, { file: "content.js" });
+      }
     } catch (e) {
       console.warn("inject failed", t.id, e.message);
     }
@@ -849,7 +881,7 @@ async function liveStatus() {
   let running = false;
   if (tab) {
     try {
-      running = !!(await browser.tabs.sendMessage(tab.id, { type: "ping" }))?.running;
+      running = !!(await browser.__tabSend(tab.id, { type: "ping" }))?.running;
     } catch {
       running = false;
     }
@@ -867,7 +899,7 @@ browser.runtime.onStartup.addListener(async () => syncAlarm(await getSettings())
 
 // ---------------------------------------------------------------- messaging
 
-browser.runtime.onMessage.addListener(async (msg) => {
+browser.__onMessage(async (msg) => {
   switch (msg.type) {
     case "getSettings":
       return getSettings();
@@ -882,35 +914,33 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "status":
       return liveStatus();
     case "run": {
-      const res = await runInGmail(msg.mode, { focus: true, create: true, ruleIds: msg.ruleIds || null, rescore: !!msg.rescore });
-      if (msg.mode === "scan") {
-        if (Array.isArray(res.labels) && res.labels.length) await browser.storage.local.set({ knownLabels: res.labels });
-        let subscriptions = res.subscriptions || null;
-        if (Array.isArray(subscriptions) && subscriptions.length) {
-          await browser.storage.local.set({ progress: { text: `AI reviewing ${subscriptions.length} subscriptions…`, at: Date.now(), running: true } });
-          subscriptions = await aiSuggestUnsubscribe(subscriptions);
-          await browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } });
-        }
-        await browser.storage.local.set({ lastPreview: { at: Date.now(), results: res.results, labels: res.labels || [], subscriptions, stopped: res.stopped } });
-        if (msg.openReview !== false) {
-          const url = browser.runtime.getURL("review/review.html");
-          const tabs = await browser.tabs.query({ url });
-          if (tabs.length) await browser.tabs.update(tabs[0].id, { active: true });
-          else await browser.tabs.create({ url });
-        }
-      }
-      return res;
+      await browser.storage.local.set({ runOptions: { openReview: msg.openReview !== false } });
+      return runInGmail(msg.mode, { focus: true, create: true, ruleIds: msg.ruleIds || null, rescore: !!msg.rescore }); // { started: true }
     }
+    case "scanFinished": {
+      const { runOptions } = await browser.storage.local.get("runOptions");
+      await onScanFinished(msg, { openReview: runOptions?.openReview !== false });
+      return true;
+    }
+    case "applyFinished":
+      await onApplyFinished(msg);
+      return true;
+    case "keepalive":
+      return true;
     case "stop": {
       const tab = await findGmailTab();
-      if (tab) await browser.tabs.sendMessage(tab.id, { type: "stop" }).catch(() => {});
+      if (tab) await browser.__tabSend(tab.id, { type: "stop" }).catch(() => {});
       return true;
     }
     case "runFinished": {
       if (msg.mode !== "clean") return true;
       const s = await getSettings();
       const entry = { at: Date.now(), total: msg.total, summary: msg.summary };
-      await browser.storage.local.set({ settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) } });
+      await browser.storage.local.set({ settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) }, cleanResult: { at: Date.now(), total: msg.total, stopped: msg.stopped } });
+      const { runOptions } = await browser.storage.local.get("runOptions");
+      if (runOptions?.notify && msg.total > 0) {
+        browser.notifications.create({ type: "basic", iconUrl: browser.runtime.getURL("icons/icon-96.png"), title: "Inbox Broom", message: `Auto-clean handled ${msg.total} conversation(s).` });
+      }
       return true;
     }
     case "aiClassify":
@@ -924,13 +954,9 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "previewSave":
       await browser.storage.local.set({ lastPreview: msg.preview });
       return true;
-    case "openReview": {
-      const url = browser.runtime.getURL("review/review.html");
-      const tabs = await browser.tabs.query({ url });
-      if (tabs.length) await browser.tabs.update(tabs[0].id, { active: true });
-      else await browser.tabs.create({ url });
+    case "openReview":
+      await openReviewTab();
       return true;
-    }
     case "apply":
       return applyPlan(msg.plan);
     case "createLabels":
@@ -940,7 +966,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
       if (!tab) throw new Error("NO_GMAIL_TAB");
       await browser.tabs.update(tab.id, { active: true });
       const names = [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*"), ...Object.keys(s.labelStyle || {})])];
-      const res = await browser.tabs.sendMessage(tab.id, {
+      const res = await browser.__tabSend(tab.id, {
         type: msg.type,
         names,
         labelFormat: s.labelFormat || "auto",
@@ -955,7 +981,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "listLabels": {
       const tab = await findGmailTab();
       if (!tab) throw new Error("NO_GMAIL_TAB");
-      return browser.tabs.sendMessage(tab.id, { type: "listLabels" });
+      return browser.__tabSend(tab.id, { type: "listLabels" });
     }
     case "aiCacheMerge": {
       const cache = await getAiCache();

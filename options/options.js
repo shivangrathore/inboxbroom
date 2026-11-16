@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
+const send = (type, extra = {}) => browser.__send({ type, ...extra });
 let defaultPrompt = "";
 
 
