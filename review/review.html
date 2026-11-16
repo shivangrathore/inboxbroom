@@ -9,24 +9,31 @@
   <header>
     <div class="brand"><img src="../icons/icon-48.png" width="22" height="22" alt="" /><h1>Review before cleaning</h1><span id="meta" class="muted"></span></div>
     <div class="tools">
-      <input id="search" type="search" placeholder="Filter sender / subject…" />
+      <input id="search" type="search" placeholder="Filter sender / subject / reason…" />
       <select id="ruleFilter"><option value="">All rules</option></select>
       <select id="verdictFilter">
         <option value="">Everything</option>
         <option value="junk">To delete</option>
         <option value="keep">To keep</option>
       </select>
-      <label class="chk"><input id="groupBySender" type="checkbox" /> group by sender</label>
+      <select id="groupBy">
+        <option value="">No grouping</option>
+        <option value="sender">Group by sender</option>
+        <option value="label">Group by label</option>
+      </select>
     </div>
   </header>
 
-  <div class="hint">Untick anything you want left alone. Click a badge to flip a verdict. Nothing happens until you press Confirm; deleted mail goes to Trash (30-day undo).</div>
   <div id="summary" class="summary"></div>
+  <div id="labelPills" class="pills"></div>
 
   <main id="main"></main>
 
   <footer>
-    <div id="progress" class="muted"></div>
+    <div class="left">
+      <div id="progress" class="muted"></div>
+      <div class="hint">Untick to leave alone · click a badge to flip · nothing happens until Confirm · deleted mail sits in Trash 30 days</div>
+    </div>
     <div class="right">
       <button id="rescan" class="btn">Preview again</button>
       <button id="confirm" class="btn primary">Confirm</button>

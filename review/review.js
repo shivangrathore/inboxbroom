@@ -1,56 +1,83 @@
 const $ = (id) => document.getElementById(id);
 const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
 
-let preview = null; // { at, results, labels }
+let preview = null; // { at, results, labels, subscriptions }
 let settings = null;
 let labels = [];
-const state = { search: "", rule: "", verdict: "", group: false };
+const state = { search: "", rule: "", verdict: "", group: "", label: null };
+let saveTimer = null;
 
 function save() {
-  return send("previewSave", { preview });
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => send("previewSave", { preview }), 200);
 }
+const coreOf = (l) => String(l || "").replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").trim().toLowerCase();
+const aiItems = () => preview.results.filter((r) => r.rule.type === "ai").flatMap((r) => r.items);
+const isSel = (x) => x.sel !== false;
 
 function stats() {
   let del = 0, keep = 0, lab = 0, bulk = 0;
   for (const r of preview.results) {
     if (r.rule.type === "ai") {
       for (const it of r.items) {
-        if (it.junk && it.sel !== false) del++;
+        if (it.junk && isSel(it)) del++;
         else if (!it.junk) {
           keep++;
-          if (it.label && it.sel !== false) lab++;
+          if (it.label && isSel(it)) lab++;
         }
       }
-    } else if (r.sel !== false) bulk += r.count;
+    } else if (isSel(r)) bulk += r.count;
   }
-  const unsub = (preview.subscriptions && Array.isArray(preview.subscriptions) ? preview.subscriptions : []).filter((x) => x.sel === undefined ? x.unsubscribe : x.sel).length;
-  return { del, keep, lab, bulk, unsub };
+  const subs = Array.isArray(preview.subscriptions) ? preview.subscriptions : [];
+  const unsub = subs.filter((x) => (x.sel === undefined ? x.unsubscribe : x.sel)).length;
+  return { del, keep, lab, bulk, unsub, hasSubs: subs.length > 0 };
 }
 
 function renderSummary() {
   const s = stats();
-  $("summary").innerHTML = "";
-  for (const [n, t] of [
-    [s.bulk, "bulk delete (Promotions/Social…)"],
-    [s.del, "AI junk to delete"],
-    [s.lab, "to label"],
-    [s.keep, "kept in inbox"],
-    [s.unsub, "to unsubscribe"],
-  ]) {
+  const root = $("summary");
+  root.innerHTML = "";
+  const tiles = [
+    [s.bulk + s.del, "to delete", "danger"],
+    [s.lab, "to label", "lab"],
+    [s.keep - s.lab, "kept, no label", ""],
+  ];
+  if (s.hasSubs) tiles.push([s.unsub, "to unsubscribe", "danger"]);
+  for (const [n, t, cls] of tiles) {
     const d = document.createElement("div");
-    d.className = "stat" + (t.includes("delete") || t.includes("unsubscribe") ? " danger" : "");
+    d.className = `stat ${cls}`;
     d.innerHTML = `<b></b><span></span>`;
     d.querySelector("b").textContent = n;
     d.querySelector("span").textContent = t;
-    $("summary").appendChild(d);
+    root.appendChild(d);
   }
-  $("confirm").textContent = `Delete ${s.bulk + s.del} · Label ${s.lab} · Unsubscribe ${s.unsub}`;
+  const parts = [`Delete ${s.bulk + s.del}`, `Label ${s.lab}`];
+  if (s.hasSubs) parts.push(`Unsubscribe ${s.unsub}`);
+  $("confirm").textContent = parts.join(" · ");
   $("confirm").disabled = s.bulk + s.del + s.lab + s.unsub === 0;
+
+  // label pills (kept mail only)
+  const counts = new Map();
+  for (const it of aiItems()) if (!it.junk) counts.set(it.label || "", (counts.get(it.label || "") || 0) + 1);
+  const pills = $("labelPills");
+  pills.innerHTML = "";
+  for (const [l, n] of [...counts].sort((a, b) => b[1] - a[1])) {
+    const p = document.createElement("span");
+    p.className = `pill${l ? "" : " none"}${state.label === l ? " active" : ""}`;
+    p.textContent = `${l || "no label"} · ${n}`;
+    p.title = "Click to filter";
+    p.onclick = () => {
+      state.label = state.label === l ? null : l;
+      render();
+    };
+    pills.appendChild(p);
+  }
 }
 
 function matches(it) {
   if (state.verdict === "junk" && !it.junk) return false;
   if (state.verdict === "keep" && it.junk) return false;
+  if (state.label !== null && (it.junk || (it.label || "") !== state.label)) return false;
   if (state.search) {
     const q = state.search.toLowerCase();
     if (!`${it.sender} ${it.email} ${it.subject} ${it.reason || ""} ${it.label || ""}`.toLowerCase().includes(q)) return false;
@@ -61,28 +88,40 @@ function matches(it) {
 function labelSelect(it) {
   const sel = document.createElement("select");
   sel.className = "lab";
-  const none = new Option("— no label —", "");
-  sel.appendChild(none);
+  sel.appendChild(new Option("— no label —", ""));
   for (const l of labels) sel.appendChild(new Option(l, l));
   if (it.label && !labels.includes(it.label)) sel.appendChild(new Option(it.label, it.label));
   sel.value = it.label || "";
   sel.onchange = async () => {
     it.label = sel.value;
-    if (it.email) await send("senderSet", { email: it.email, verdict: null, label: it.label });
+    it.sel = true;
+    if (it.email) await send("senderSet", { email: it.email, label: it.label });
     renderSummary();
     save();
   };
   return sel;
 }
 
+function smallBtn(text, title, fn) {
+  const b = document.createElement("button");
+  b.className = "btn sm";
+  b.textContent = text;
+  b.title = title;
+  b.onclick = async () => {
+    b.disabled = true;
+    await fn(b);
+  };
+  return b;
+}
+
 function itemRow(it, r) {
   const tr = document.createElement("tr");
-  if (it.sel === false) tr.classList.add("off");
+  if (!isSel(it)) tr.classList.add("off");
   const c = document.createElement("td");
   c.className = "c";
   const cb = document.createElement("input");
   cb.type = "checkbox";
-  cb.checked = it.sel !== false;
+  cb.checked = isSel(it);
   cb.title = "Include in confirm";
   cb.onchange = () => {
     it.sel = cb.checked;
@@ -102,7 +141,7 @@ function itemRow(it, r) {
   subj.innerHTML = `<span></span> <small></small>`;
   subj.querySelector("span").textContent = it.subject || "(no subject)";
   subj.querySelector("small").textContent = it.snippet ? `– ${it.snippet}` : "";
-  subj.title = it.reason || "";
+  subj.title = `${it.subject}\n${it.snippet || ""}\n\nAI: ${it.reason || ""}`;
 
   const date = document.createElement("td");
   date.className = "date";
@@ -112,7 +151,7 @@ function itemRow(it, r) {
   v.className = "v";
   const badge = document.createElement("span");
   badge.className = `badge ${it.junk ? "junk" : "keep"}`;
-  badge.textContent = it.junk ? `delete ${it.score ?? ""}` : "keep";
+  badge.textContent = it.junk ? `delete${it.score != null ? " " + it.score : ""}` : "keep";
   badge.title = `${it.reason || ""}${it.source ? ` (${it.source})` : ""}\nClick to flip`;
   badge.onclick = async () => {
     it.junk = !it.junk;
@@ -129,61 +168,76 @@ function itemRow(it, r) {
 
   const act = document.createElement("td");
   act.className = "act";
-  const mk = (text, title, fn) => {
-    const b = document.createElement("button");
-    b.className = "btn sm";
-    b.textContent = text;
-    b.title = title;
-    b.onclick = async () => {
-      b.disabled = true;
-      await fn(b);
-    };
-    return b;
-  };
   if (it.email) {
     act.appendChild(
-      mk(it.junk ? "always delete" : "always keep", `Remember this for ${it.email}`, async (b) => {
+      smallBtn(it.junk ? "always delete" : "always keep", `Remember this for every mail from ${it.email}`, async () => {
         await send("senderSet", { email: it.email, verdict: it.junk ? "junk" : "keep", label: it.label || undefined });
         if (!it.junk) await send("addAllowlist", { entries: [it.email] });
-        // apply to all items from this sender in the preview
-        for (const rr of preview.results) for (const x of rr.items) if (x.email === it.email) { x.junk = it.junk; x.sel = true; if (!it.junk) x.label = x.label || it.label; }
+        for (const x of aiItems()) if (x.email === it.email) { x.junk = it.junk; x.sel = true; if (!it.junk && !x.label) x.label = it.label; }
         render();
         save();
       })
     );
+    if (!it.junk && it.label) {
+      act.appendChild(
+        smallBtn("label sender", `Apply "${it.label}" to all kept mail from ${it.email}`, async () => {
+          for (const x of aiItems()) if (x.email === it.email && !x.junk) { x.label = it.label; x.sel = true; }
+          await send("senderSet", { email: it.email, label: it.label });
+          render();
+          save();
+        })
+      );
+    }
   }
   tr.append(c, who, subj, date, v, lab, act);
   return tr;
 }
 
+function groupHead(title, sub, list, colSpan) {
+  const h = document.createElement("tr");
+  h.className = "group-head";
+  h.innerHTML = `<td class="c"><input type="checkbox"></td><td colspan="${colSpan}"><span></span><span class="n"></span></td>`;
+  h.querySelector("span").textContent = title;
+  h.querySelector(".n").textContent = sub;
+  const gcb = h.querySelector("input");
+  gcb.checked = list.every(isSel);
+  gcb.onchange = () => {
+    for (const x of list) x.sel = gcb.checked;
+    render();
+    save();
+  };
+  return h;
+}
+
 function renderSubscriptions(main) {
   const subs = preview.subscriptions;
-  if (!subs) return;
-  const box = document.createElement("div");
-  box.className = "rule";
-  const head = document.createElement("div");
-  head.className = "head";
-  const b = document.createElement("b");
-  b.textContent = "Subscriptions (Gmail → Manage subscriptions)";
-  head.appendChild(b);
-  box.appendChild(head);
-  if (subs.error) {
-    const n = document.createElement("div");
-    n.className = "bulknote";
-    n.textContent = subs.error;
-    box.appendChild(n);
-    main.appendChild(box);
+  if (!subs || subs.error || !subs.length) {
+    if (subs?.error) {
+      const b = document.createElement("div");
+      b.className = "banner";
+      b.textContent = `Unsubscribe suggestions unavailable: ${subs.error}`;
+      main.appendChild(b);
+    }
     return;
   }
-  const list = subs.filter((x) => {
-    if (state.verdict === "junk" && !x.unsubscribe) return false;
-    if (state.verdict === "keep" && x.unsubscribe) return false;
-    if (state.search && !`${x.name} ${x.email} ${x.reason || ""} ${(x.subjects || []).join(" ")}`.toLowerCase().includes(state.search.toLowerCase())) return false;
-    return true;
-  }).sort((a, b) => (b.unsubscribe - a.unsubscribe) || (b.count || 0) - (a.count || 0));
-  if (!list.length) return;
+  const box = document.createElement("details");
+  box.className = "rule";
+  box.open = true;
+  const sum = document.createElement("summary");
+  const n = subs.filter((x) => (x.sel === undefined ? x.unsubscribe : x.sel)).length;
+  sum.innerHTML = `<b>Subscriptions</b><span class="q">Gmail → Manage subscriptions</span><span class="n danger"></span>`;
+  sum.querySelector(".n").textContent = `${n} to unsubscribe · ${subs.length} senders`;
+  box.appendChild(sum);
+  const list = subs
+    .filter((x) => {
+      if (state.verdict === "junk" && !x.unsubscribe) return false;
+      if (state.verdict === "keep" && x.unsubscribe) return false;
+      if (state.search && !`${x.name} ${x.email} ${x.reason || ""} ${(x.subjects || []).join(" ")}`.toLowerCase().includes(state.search.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => b.unsubscribe - a.unsubscribe || (b.count || 0) - (a.count || 0));
   const t = document.createElement("table");
-  t.innerHTML = `<thead><tr><th></th><th>Sender</th><th>Recent subjects</th><th>Mails</th><th>AI</th><th></th></tr></thead>`;
+  t.innerHTML = `<thead><tr><th class="c"></th><th class="who">Sender</th><th>Recent subjects</th><th class="date">Mails</th><th class="v">AI</th><th>Reason</th></tr></thead>`;
   const tb = document.createElement("tbody");
   for (const x of list) {
     const tr = document.createElement("tr");
@@ -194,7 +248,6 @@ function renderSubscriptions(main) {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = on;
-    cb.title = "Unsubscribe on confirm";
     cb.onchange = () => {
       x.sel = cb.checked;
       tr.classList.toggle("off", !cb.checked);
@@ -204,13 +257,11 @@ function renderSubscriptions(main) {
     c.appendChild(cb);
     const who = document.createElement("td");
     who.className = "who";
-    who.innerHTML = `<div></div><small class="muted"></small>`;
-    who.querySelector("div").textContent = x.name || x.email;
-    who.querySelector("small").textContent = x.email;
+    who.textContent = x.name || x.email;
+    who.title = x.email;
     const subj = document.createElement("td");
     subj.className = "subj";
     subj.textContent = (x.subjects || []).join(" · ") || "—";
-    subj.title = subj.textContent;
     const cnt = document.createElement("td");
     cnt.className = "date";
     cnt.textContent = x.count ?? "";
@@ -219,7 +270,6 @@ function renderSubscriptions(main) {
     const badge = document.createElement("span");
     badge.className = `badge ${x.unsubscribe ? "junk" : "keep"}`;
     badge.textContent = x.unsubscribe ? "unsubscribe" : "keep";
-    badge.title = `${x.reason || ""}\nClick to flip`;
     badge.onclick = () => {
       x.unsubscribe = !x.unsubscribe;
       x.sel = x.unsubscribe;
@@ -229,8 +279,7 @@ function renderSubscriptions(main) {
     v.appendChild(badge);
     const why = document.createElement("td");
     why.className = "why";
-    why.textContent = x.reason || "";
-    if (x.status) why.textContent = `${x.status}${x.error ? ": " + x.error : ""}`;
+    why.textContent = x.status ? `${x.status}${x.error ? ": " + x.error : ""}` : x.reason || "";
     tr.append(c, who, subj, cnt, v, why);
     tb.appendChild(tr);
   }
@@ -244,23 +293,27 @@ function render() {
   const main = $("main");
   main.innerHTML = "";
   let any = false;
-  if (!state.rule) {
-    renderSubscriptions(main);
-    any = !!preview.subscriptions;
-  }
+  if (!state.rule) renderSubscriptions(main);
+
   for (const r of preview.results) {
     if (state.rule && r.rule.id !== state.rule) continue;
-    const box = document.createElement("div");
+    const isAi = r.rule.type === "ai";
+    const items = isAi ? r.items.filter(matches).sort((a, b) => b.junk - a.junk || (b.score || 0) - (a.score || 0)) : r.items;
+    const junkN = isAi ? r.items.filter((i) => i.junk && isSel(i)).length : r.count;
+    if (isAi && !items.length && (state.search || state.label !== null || state.verdict)) continue;
+
+    const box = document.createElement("details");
     box.className = "rule";
-    const head = document.createElement("div");
-    head.className = "head";
+    box.open = isAi ? true : r.count > 0;
+    const sum = document.createElement("summary");
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = r.sel !== false;
+    cb.checked = isSel(r);
     cb.title = "Include this rule";
+    cb.onclick = (e) => e.stopPropagation();
     cb.onchange = () => {
       r.sel = cb.checked;
-      if (r.rule.type === "ai") for (const it of r.items) it.sel = cb.checked;
+      if (isAi) for (const it of r.items) it.sel = cb.checked;
       render();
       save();
     };
@@ -269,56 +322,64 @@ function render() {
     const q = document.createElement("span");
     q.className = "q";
     q.textContent = r.query;
-    head.append(cb, b, q);
-    box.appendChild(head);
+    q.title = r.query;
+    const n = document.createElement("span");
+    n.className = `n${junkN ? " danger" : ""}`;
+    n.textContent = isAi ? `${junkN} to delete · ${r.items.filter((i) => !i.junk).length} kept` : `${r.count} → ${r.rule.action === "delete" ? "Trash" : r.rule.action}`;
+    sum.append(cb, b, q, n);
+    box.appendChild(sum);
+    for (const w of r.warnings || []) {
+      const d = document.createElement("div");
+      d.className = "bulknote";
+      d.textContent = w;
+      box.appendChild(d);
+    }
 
-    if (r.rule.type !== "ai") {
-      const note = document.createElement("div");
-      note.className = "bulknote";
-      note.textContent = `${r.count} conversation(s) match → ${r.rule.action === "delete" ? "Trash" : r.rule.action}. Sample of the newest:`;
-      box.appendChild(note);
+    if (!isAi) {
       if (r.items.length) {
         const t = document.createElement("table");
-        for (const it of r.items.slice(0, 15).filter(matches)) {
+        for (const it of r.items.slice(0, 15)) {
           const tr = document.createElement("tr");
-          tr.innerHTML = `<td class="who"></td><td class="subj"></td><td class="date"></td>`;
+          tr.innerHTML = `<td class="c"></td><td class="who"></td><td class="subj"></td><td class="date"></td>`;
           tr.querySelector(".who").textContent = it.sender || it.email;
           tr.querySelector(".subj").textContent = it.subject;
           tr.querySelector(".date").textContent = (it.date || "").replace(/,.*$/, "");
           t.appendChild(tr);
         }
-        box.appendChild(t);
+        const note = document.createElement("div");
+        note.className = "bulknote";
+        note.textContent = r.count > 15 ? `Newest 15 of ${r.count} shown; all ${r.count} are affected.` : "";
+        box.append(t, note);
+      } else {
+        const note = document.createElement("div");
+        note.className = "bulknote";
+        note.textContent = "Nothing matches right now.";
+        box.appendChild(note);
       }
       main.appendChild(box);
       any = true;
       continue;
     }
 
-    const items = r.items.filter(matches).sort((a, b) => (b.junk - a.junk) || (b.score || 0) - (a.score || 0));
-    if (!items.length) continue;
     const t = document.createElement("table");
-    t.innerHTML = `<thead><tr><th></th><th>From</th><th>Subject</th><th>Date</th><th>Verdict</th><th>Label</th><th></th></tr></thead>`;
+    t.innerHTML = `<thead><tr><th class="c"></th><th class="who">From</th><th>Subject</th><th class="date">Date</th><th class="v">Verdict</th><th class="lab">Label</th><th class="act"></th></tr></thead>`;
     const tb = document.createElement("tbody");
     if (state.group) {
-      const bySender = new Map();
-      for (const it of items) (bySender.get(it.email) || bySender.set(it.email, []).get(it.email)).push(it);
-      for (const [email, list] of [...bySender].sort((a, b) => b[1].length - a[1].length)) {
-        const h = document.createElement("tr");
-        h.className = "sender-head";
-        h.innerHTML = `<td class="c"><input type="checkbox"></td><td colspan="6"><span></span><span class="n"></span></td>`;
-        h.querySelector("span").textContent = list[0].sender || email;
-        h.querySelector(".n").textContent = `${email} · ${list.length}`;
-        const gcb = h.querySelector("input");
-        gcb.checked = list.every((x) => x.sel !== false);
-        gcb.onchange = () => {
-          for (const x of list) x.sel = gcb.checked;
-          render();
-          save();
-        };
-        tb.appendChild(h);
+      const keyOf = (it) => (state.group === "sender" ? it.email : it.junk ? "— to delete —" : it.label || "— no label —");
+      const groups = new Map();
+      for (const it of items) (groups.get(keyOf(it)) || groups.set(keyOf(it), []).get(keyOf(it))).push(it);
+      for (const [k, list] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+        const title = state.group === "sender" ? list[0].sender || k : k;
+        const sub = state.group === "sender" ? `${k} · ${list.length}` : `${list.length}`;
+        tb.appendChild(groupHead(title, sub, list, 6));
         for (const it of list) tb.appendChild(itemRow(it, r));
       }
     } else for (const it of items) tb.appendChild(itemRow(it, r));
+    if (!items.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="7" class="bulknote">Nothing matches the current filter.</td>`;
+      tb.appendChild(tr);
+    }
     t.appendChild(tb);
     box.appendChild(t);
     main.appendChild(box);
@@ -330,7 +391,7 @@ function render() {
 function buildPlan() {
   const plan = { bulk: [], ai: [] };
   for (const r of preview.results) {
-    if (r.sel === false) continue;
+    if (!isSel(r)) continue;
     if (r.rule.type !== "ai") {
       if (r.count > 0) plan.bulk.push({ rule: r.rule });
       continue;
@@ -338,7 +399,7 @@ function buildPlan() {
     const deleteIds = [];
     const labelsMap = {};
     for (const it of r.items) {
-      if (it.sel === false) continue;
+      if (!isSel(it)) continue;
       if (it.junk) deleteIds.push(it.id);
       else if (it.label) (labelsMap[it.label] = labelsMap[it.label] || []).push(it.id);
     }
@@ -352,7 +413,7 @@ function buildPlan() {
 async function confirmPlan() {
   const s = stats();
   const plan = buildPlan();
-  const msg = `Delete ${s.bulk + s.del} conversation(s) (Trash, recoverable 30 days), label ${s.lab}, unsubscribe from ${s.unsub} sender(s)?`;
+  const msg = `Delete ${s.bulk + s.del} conversation(s) (Trash, recoverable 30 days), label ${s.lab}${s.hasSubs ? `, unsubscribe from ${s.unsub} sender(s)` : ""}?`;
   if (!confirm(msg)) return;
   $("confirm").disabled = true;
   $("rescan").disabled = true;
@@ -363,15 +424,17 @@ async function confirmPlan() {
     const un = res.unsubscribe || [];
     const unDone = un.filter((u) => u.status === "done" || u.status === "clicked").length;
     const needSite = un.filter((u) => u.status === "needs-website");
-    $("progress").textContent = `Done: ${res.total} deleted, ${res.summary.reduce((n, x) => n + (x.labeled || 0), 0)} labeled, ${unDone} unsubscribed.` + (warns.length ? ` Warnings: ${warns.join(" | ")}` : "");
+    const labeled = res.summary.reduce((n, x) => n + (x.labeled || 0), 0);
+    $("progress").textContent = `Done: ${res.total} deleted, ${labeled} labeled${s.hasSubs ? `, ${unDone} unsubscribed` : ""}.` + (warns.length ? ` Warnings: ${warns.join(" | ")}` : "");
     $("summary").innerHTML = "";
+    $("labelPills").innerHTML = "";
     $("confirm").textContent = "Done";
     const left = document.createElement("div");
     left.className = "empty";
-    left.innerHTML = `<p>Cleaned. Run Preview again from the toolbar popup for another pass.</p>`;
+    left.innerHTML = `<p>Cleaned. Run Preview again for another pass.</p>`;
     if (needSite.length) {
       const p = document.createElement("p");
-      p.textContent = `These senders need a website visit to unsubscribe (Gmail → Manage subscriptions → Unsubscribe → Go to website): ${needSite.map((u) => u.email).join(", ")}`;
+      p.textContent = `These senders need a website visit to unsubscribe: ${needSite.map((u) => u.email).join(", ")}`;
       left.appendChild(p);
     }
     const failed = un.filter((u) => !["done", "clicked", "needs-website"].includes(u.status));
@@ -412,28 +475,37 @@ async function load() {
   if (!preview) {
     $("main").innerHTML = `<div class="empty">No preview yet. Click the toolbar icon → Preview.</div>`;
     $("meta").textContent = "";
+    $("summary").innerHTML = "";
+    $("labelPills").innerHTML = "";
     $("confirm").disabled = true;
     return;
   }
-  const core = (l) => String(l).replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").trim().toLowerCase();
   const byCore = new Map();
-  for (const l of preview.labels || []) if (!byCore.has(core(l))) byCore.set(core(l), l);
-  for (const l of settings.ai.suggestedLabels || []) if (!byCore.has(core(l))) byCore.set(core(l), l);
+  for (const l of preview.labels || []) if (!byCore.has(coreOf(l))) byCore.set(coreOf(l), l);
+  for (const l of settings.ai.suggestedLabels || []) if (!byCore.has(coreOf(l))) byCore.set(coreOf(l), l);
   labels = [...byCore.values()].sort((a, b) => a.localeCompare(b));
-  $("meta").textContent = `previewed ${new Date(preview.at).toLocaleString()}${preview.stopped ? " (stopped early)" : ""} · ${preview.labels?.length || 0} Gmail labels found`;
+  $("meta").textContent = `previewed ${new Date(preview.at).toLocaleString()}${preview.stopped ? " (stopped early)" : ""} · ${preview.labels?.length || 0} Gmail labels`;
   const rf = $("ruleFilter");
+  const cur = rf.value;
   rf.innerHTML = `<option value="">All rules</option>`;
   for (const r of preview.results) rf.appendChild(new Option(r.rule.name, r.rule.id));
+  rf.value = cur;
   render();
 }
 
 $("search").oninput = () => { state.search = $("search").value.trim(); render(); };
 $("ruleFilter").onchange = () => { state.rule = $("ruleFilter").value; render(); };
 $("verdictFilter").onchange = () => { state.verdict = $("verdictFilter").value; render(); };
-$("groupBySender").onchange = () => { state.group = $("groupBySender").checked; render(); };
+$("groupBy").onchange = () => { state.group = $("groupBy").value; render(); };
 $("confirm").onclick = confirmPlan;
 $("rescan").onclick = rescan;
+let lastAt = null;
 browser.storage.onChanged.addListener((ch) => {
   if (ch.progress?.newValue?.text) $("progress").textContent = ch.progress.newValue.text;
+  if (ch.lastPreview && ch.lastPreview.newValue && ch.lastPreview.newValue.at !== lastAt) {
+    lastAt = ch.lastPreview.newValue.at;
+    load();
+    $("progress").textContent = "";
+  }
 });
-load();
+load().then(() => (lastAt = preview?.at || null));
