@@ -113,21 +113,23 @@
 
   const btnLabel = (b) => `${b.getAttribute("aria-label") || ""}|${b.getAttribute("data-tooltip") || ""}|${b.getAttribute("title") || ""}|${txt(b)}`;
   function toolbarButtons() {
-    const scope = toolbar() || document;
-    return qa('[role="button"], button', scope);
+    const tb = toolbar();
+    return tb ? qa('[role="button"], button', tb) : [];
   }
+  /** Strictly inside the message-list toolbar (gh="tm"). Never falls back to the whole page. */
   function toolbarButton(name) {
     const act = { Delete: "10", Archive: "7" }[name];
-    const scope = toolbar() || document;
+    const tb = toolbar();
+    if (act) {
+      const a = (tb && q(`div[act="${act}"]`, tb)) || q(`div[act="${act}"]`);
+      if (a) return a;
+    }
+    if (!tb) return null;
     const re = new RegExp(`(^|\\|)\\s*${name}`, "i");
-    const hit =
-      (act && (q(`div[act="${act}"]`, scope) || q(`div[act="${act}"]`))) ||
-      toolbarButtons().find((b) => re.test(btnLabel(b))) ||
-      qa('[role="button"], button').find((b) => re.test(btnLabel(b)) && !b.closest('[role="menu"], [role="dialog"]'));
+    const hit = toolbarButtons().find((b) => re.test(btnLabel(b)) && !/search/i.test(btnLabel(b)));
     if (hit) return hit;
     if (/^label/i.test(name)) {
-      // Gmail's Labels button is a dropdown (aria-haspopup) that is not Move to / More / Snooze / Tasks
-      const drops = toolbarButtons().filter((b) => b.getAttribute("aria-haspopup") === "true" && !/move|more|snooze|task|add to|select|sort/i.test(btnLabel(b)));
+      const drops = toolbarButtons().filter((b) => b.getAttribute("aria-haspopup") === "true" && !/move|more|snooze|task|add to|select|sort|search/i.test(btnLabel(b)));
       if (drops.length) return drops[drops.length - 1];
     }
     return null;
@@ -664,6 +666,7 @@
   /** Opens Gmail's "Label as" menu for the current selection. Works with both toolbars:
    *  advanced (Labels button) and simplified (⋮ More → Label as ▸). Returns the menu element with the search input. */
   async function openLabelMenu() {
+    if (!(await waitFor(toolbar, { timeout: 4000 }))) throw new Error(`message-list toolbar not found. ${diag()}`);
     const direct = toolbarButton("Label");
     if (direct) {
       click(direct);
@@ -672,7 +675,7 @@
       closeMenus();
       await sleep(300);
     }
-    const more = toolbarButton("More") || toolbarButtons().find((b) => b.getAttribute("aria-haspopup") === "true" && /more|options/i.test(btnLabel(b)));
+    const more = toolbarButton("More") || toolbarButtons().find((b) => b.getAttribute("aria-haspopup") === "true" && /^(\|)*\s*(more|options)/i.test(btnLabel(b)) && !/search/i.test(btnLabel(b)));
     if (!more) throw new Error(`Neither a "Labels" button nor a "More" (⋮) button in the toolbar. Toolbar buttons: ${toolbarDiag()}. ${diag()}`);
     click(more);
     const menu = await waitFor(() => qa('div[role="menu"]').find((m) => /label as/i.test(txt(m))), { timeout: 4000 });
