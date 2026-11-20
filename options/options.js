@@ -319,7 +319,7 @@ $("aiTest").onclick = async () => {
   const ai = readAi();
   if (!(await ensureHostPermission(ai))) { $("aiResult").className = "alert danger"; $("aiResult").textContent = "Permission to contact that host was declined."; return; }
   await save();
-  const r = await send("aiTest");
+  const r = await send("aiTest").catch((e) => ({ ok: false, error: e.message }));
   const box = $("aiResult");
   box.classList.remove("hidden");
   if (!r.ok) { box.className = "alert danger"; box.textContent = `Connection failed: ${r.error}`; return; }

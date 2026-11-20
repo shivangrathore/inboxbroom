@@ -576,7 +576,7 @@ async function openaiChat(ai, messages, { numPredict = 1024 } = {}) {
   const body = { model: ai.openaiModel, messages, temperature: 0, max_tokens: Math.max(4096, numPredict * 8), response_format: { type: "json_object" } };
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${ai.openaiKey}` };
   if (/openrouter\.ai/i.test(base)) headers["HTTP-Referer"] = "https://github.com/shivangrathore/inboxbroom";
-  const post = async (b) => fetch(`${base}/chat/completions`, { method: "POST", headers, body: JSON.stringify(b) });
+  const post = async (b) => fetchT(`${base}/chat/completions`, { method: "POST", headers, body: JSON.stringify(b) }, LLM_TIMEOUT_MS, "Provider");
   let r = await post(body);
   if (r.status === 400) {
     // some providers reject response_format; retry without
@@ -598,7 +598,7 @@ async function openaiChat(ai, messages, { numPredict = 1024 } = {}) {
 async function anthropicChat(ai, messages, { numPredict = 1024 } = {}) {
   const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
   const msgs = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content }));
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  const r = await fetchT("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -615,7 +615,7 @@ async function anthropicChat(ai, messages, { numPredict = 1024 } = {}) {
       output_config: { effort: "low" },
       fallbacks: "default",
     }),
-  });
+  }, LLM_TIMEOUT_MS, "Anthropic");
   if (r.status === 401 || r.status === 403) throw new Error("Anthropic API key rejected (401/403). Check the key in Settings → Local AI.");
   if (r.status === 404) throw new Error(`Anthropic model "${ai.anthropicModel}" not found (404).`);
   if (r.status === 429) throw new Error("Anthropic rate limit (429). Lower the batch size or wait.");
@@ -624,6 +624,23 @@ async function anthropicChat(ai, messages, { numPredict = 1024 } = {}) {
   if (j.stop_reason === "refusal") throw new Error(`Anthropic declined the request${j.stop_details?.category ? ` (${j.stop_details.category})` : ""}.`);
   return (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
 }
+
+/** An error that retrying (or the next batch) won't fix: unreachable server, bad key, missing model, timeout. */
+const fatalErr = (msg) => Object.assign(new Error(msg), { fatal: true });
+/** fetch with a deadline, so a hung or still-loading model can't block a run forever. */
+async function fetchT(url, opts, ms, what) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctl.signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw fatalErr(`${what} didn't answer within ${Math.round(ms / 1000)} s (model still loading, or too slow for this machine)`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const LLM_TIMEOUT_MS = 120000;
 
 async function ollamaChat(ai, messages, { format = RESULT_SCHEMA, numPredict = 1024 } = {}) {
   const url = ai.endpoint.replace(/\/$/, "") + "/api/chat";
@@ -638,14 +655,15 @@ async function ollamaChat(ai, messages, { format = RESULT_SCHEMA, numPredict = 1
   if (format) body.format = format;
   let r;
   try {
-    r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    r = await fetchT(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, LLM_TIMEOUT_MS, "Ollama");
   } catch (e) {
-    throw new Error(`Cannot reach Ollama at ${ai.endpoint}. Is it running with OLLAMA_ORIGINS="moz-extension://*"? (${e.message})`);
+    if (e.fatal) throw e;
+    throw fatalErr(`Cannot reach Ollama at ${ai.endpoint}. Is it running with OLLAMA_ORIGINS="moz-extension://*"? (${e.message})`);
   }
   if (!r.ok) {
     const t = await r.text().catch(() => "");
-    if (r.status === 403) throw new Error(`Ollama refused (403). Start Ollama with OLLAMA_ORIGINS="moz-extension://*".`);
-    if (r.status === 404) throw new Error(`Model "${ai.model}" not found. Run: ollama pull ${ai.model}`);
+    if (r.status === 403) throw fatalErr(`Ollama refused (403). Start Ollama with OLLAMA_ORIGINS="moz-extension://*".`);
+    if (r.status === 404) throw fatalErr(`Model "${ai.model}" not found. Run: ollama pull ${ai.model}`);
     throw new Error(`Ollama ${r.status}: ${t.slice(0, 200)}`);
   }
   const j = await r.json();
@@ -673,9 +691,9 @@ async function modelScores(ai, batch, rule, labels = []) {
   try {
     return await modelScoresOnce(ai, batch, rule, labels);
   } catch (e) {
-    if (batch.length === 1) {
-      console.warn("[cleaner] model failed on single item, heuristics only:", e.message);
-      return [{ score: null, reason: `model error: ${e.message.slice(0, 60)}`, label: "" }];
+    if (batch.length === 1 || e.fatal) {
+      console.warn("[cleaner] model failed, heuristics only:", e.message);
+      return batch.map(() => ({ score: null, reason: `model error: ${e.message.slice(0, 160)}`, label: "", fatal: !!e.fatal }));
     }
     // repetition loops / malformed JSON: retry in halves
     const mid = Math.ceil(batch.length / 2);
@@ -774,9 +792,12 @@ async function aiClassify(items, rule, existingLabels = []) {
   }
 
   const size = Math.max(1, Math.min(30, Number(ai.batchSize) || 12));
+  let fatal = "";
   for (let i = 0; i < toModel.length; i += size) {
     const batch = toModel.slice(i, i + size);
-    const scores = await modelScores(ai, batch, rule, labels);
+    // after a fatal model error (unreachable, timeout, missing model) don't wait for it again on every batch
+    const scores = fatal ? batch.map(() => ({ score: null, reason: fatal, label: "", fatal: true })) : await modelScores(ai, batch, rule, labels);
+    if (!fatal && scores[0]?.fatal) fatal = scores[0].reason;
     batch.forEach((m, k) => {
       const hints = ai.heuristics ? hintsFor(m) : [];
       let score = scores[k].score;
@@ -1015,6 +1036,21 @@ async function aiSuggestUnsubscribe(subs) {
 
 async function aiTest() {
   const { ai } = await getSettings();
+  if (!ai.provider || ai.provider === "ollama") {
+    // quick checks first, so "not running" and "model not pulled" don't look like a hang
+    let tags;
+    try {
+      const r = await fetchT(ai.endpoint.replace(/\/$/, "") + "/api/tags", {}, 8000, "Ollama");
+      if (r.status === 403) return { ok: false, error: `Ollama refused (403). Start Ollama with OLLAMA_ORIGINS="moz-extension://*" (chrome-extension://* on Chrome).` };
+      if (!r.ok) return { ok: false, error: `Ollama answered ${r.status} at ${ai.endpoint}` };
+      tags = (await r.json()).models || [];
+    } catch (e) {
+      return { ok: false, error: e.fatal ? e.message : `Cannot reach Ollama at ${ai.endpoint}. Is it running? (${e.message})` };
+    }
+    const names = tags.map((m) => m.name);
+    const want = ai.model.includes(":") ? ai.model : `${ai.model}:latest`;
+    if (!names.includes(want)) return { ok: false, error: `Model "${ai.model}" isn't installed in Ollama. Run: ollama pull ${ai.model}. Installed: ${names.join(", ") || "none"}` };
+  }
   const t0 = Date.now();
   const sample = [
     { id: "a", sender: "Zara", email: "news@zara.com", subject: "50% off everything this weekend", snippet: "Shop the sale now" },
