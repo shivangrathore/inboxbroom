@@ -1,0 +1,21 @@
+{
+  "categories": {
+    "firefox": [
+      "social-communication"
+    ]
+  },
+  "summary": {
+    "en-US": "Sweeps junk out of Gmail: bulk rules plus optional AI triage that trashes junk, labels what you keep and suggests unsubscribes. Use a local Ollama model (nothing leaves your machine) or a cloud provider you choose."
+  },
+  "description": {
+    "en-US": "Inbox Broom cleans your Gmail inbox by **driving the Gmail web page the way you would by hand**: it runs searches, ticks rows and clicks Archive, Delete, Label and Unsubscribe. No Google API, no OAuth, no account to create.\n\n**How it works:** Preview → review page (edit verdicts, labels, subscriptions) → Confirm. Nothing is permanently deleted: junk goes to Gmail's Trash (30-day undo), and any run can be undone from the popup for 7 days.\n\n**Features**\n\n- **Bulk rules**: one Gmail search per rule (Promotions, Social, old OTP mails…), trashed thousands at a time.\n- **AI triage** (optional): sender, subject and a short preview of each remaining inbox row are classified junk / keep; only junk is trashed.\n- **Labels**: every kept mail gets one label, preferring your existing Gmail labels.\n- **Retention**: per-label inbox lifetimes; archived, starred and important mail is never touched.\n- **Unsubscribe**: suggests senders you never open and clicks Gmail's own Unsubscribe.\n- **Review page**: flip verdicts, change labels, always-delete / always-keep per sender, then one Confirm.\n- **Undo**: restore any run from the last 7 days.\n\n**AI providers**\n\n- **Ollama** (default): runs on your own computer, nothing leaves your machine. Start it with `OLLAMA_ORIGINS=\"moz-extension://*\" ollama serve`.\n- **OpenAI-compatible** or **Anthropic** (opt-in, your own API key): Firefox asks you to allow sending email data to that provider before anything is sent.\n\nWithout any AI, bulk rules still work.\n\n**Requirements:** Gmail web UI in English. Keep the Gmail tab open while a run is in progress.\n\nOpen source (MIT): https://github.com/shivangrathore/inboxbroom"
+  },
+  "homepage": {
+    "en-US": "https://github.com/shivangrathore/inboxbroom"
+  },
+  "requires_payment": false,
+  "version": {
+    "license": "MIT",
+    "approval_notes": "Source is plain, unminified JavaScript with no build step (the package is a zip of the repo files: https://github.com/shivangrathore/inboxbroom). No remote code.\n\nThe content script on mail.google.com automates Gmail's own UI (search, select, Trash, Label as, Unsubscribe) after the user previews and confirms in the review page. AI triage is optional: by default it calls a local Ollama server on localhost:11434. Cloud providers (OpenAI-compatible endpoint or api.anthropic.com) are opt-in with the user's own API key; the options page requests the host permission together with the optional 'personalCommunications' data collection permission, and the background refuses to send anything to a non-local provider until that permission is granted.\n\nTo test: install, open Gmail (English UI), click the toolbar icon → Preview. Bulk rules work without any AI configured."
+  }
+}

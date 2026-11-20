@@ -231,8 +231,10 @@ function renderSubscriptions(main) {
     return;
   }
   const n = subs.filter((x) => (x.sel === undefined ? x.unsubscribe : x.sel)).length;
-  const box = section({ title: "Subscriptions", query: "Gmail → Manage subscriptions", countText: `${n} to unsubscribe · ${subs.length} senders`, danger: n > 0, checked: true, onToggle: (v) => { for (const x of subs) x.sel = v; render(); save(); }, open: true });
-  const list = subs.filter((x) => !state.search || `${x.name} ${x.email} ${x.reason || ""} ${(x.subjects || []).join(" ")}`.toLowerCase().includes(state.search.toLowerCase())).sort((a, b) => b.unsubscribe - a.unsubscribe || (b.count || 0) - (a.count || 0));
+  const fromInbox = subs.some((x) => x.source === "inbox");
+  const box = section({ title: "Subscriptions", query: fromInbox ? "Bulk senders seen in your scans" : "Gmail → Manage subscriptions", countText: `${n} to unsubscribe · ${subs.length} senders`, danger: n > 0, checked: true, onToggle: (v) => { for (const x of subs) x.sel = v; render(); save(); }, open: true });
+  if (fromInbox) { const note = document.createElement("div"); note.className = "note"; note.textContent = "Gmail's Manage subscriptions page could not be read, so these come from senders the scans keep seeing. Confirm opens each one's latest mail and clicks Gmail's Unsubscribe next to the sender."; box.appendChild(note); }
+  const list = subs.filter((x) => !state.search || `${x.name} ${x.email} ${x.reason || ""} ${(x.signals || []).join(" ")} ${(x.subjects || []).join(" ")}`.toLowerCase().includes(state.search.toLowerCase())).sort((a, b) => b.unsubscribe - a.unsubscribe || (b.score ?? 50) - (a.score ?? 50) || (b.count || 0) - (a.count || 0));
   for (const x of list) {
     const row = document.createElement("div");
     const on = x.sel === undefined ? x.unsubscribe : x.sel;
@@ -242,10 +244,14 @@ function renderSubscriptions(main) {
     c.appendChild(cb);
     const av = document.createElement("span"); av.className = "avatar"; av.style.background = `hsl(${hue(x.email)} 45% 45%)`; av.textContent = initials(x.name || x.email);
     const who = document.createElement("div"); who.className = "who"; who.textContent = x.name || x.email; who.title = x.email;
-    const subj = document.createElement("div"); subj.className = "subj"; subj.textContent = (x.subjects || []).join(" · ") || x.reason || "";
+    const subj = document.createElement("div"); subj.className = "subj";
+    subj.innerHTML = `<span></span> <small></small>`;
+    subj.querySelector("span").textContent = (x.signals || []).join(" · ") || x.reason || "";
+    subj.querySelector("small").textContent = x.subjects?.length ? `– ${x.subjects.join(" · ")}` : "";
+    subj.title = [x.reason, ...(x.subjects || [])].filter(Boolean).join("\n");
     const cnt = document.createElement("div"); cnt.className = "date"; cnt.textContent = x.count != null ? `${x.count} mails` : "";
     const v = document.createElement("div");
-    const badge = document.createElement("span"); badge.className = `badge ${x.unsubscribe ? "junk" : "keep"}`; badge.textContent = x.unsubscribe ? "unsubscribe" : "keep"; badge.title = `${x.reason || ""}\nClick to flip`;
+    const badge = document.createElement("span"); badge.className = `badge ${x.unsubscribe ? "junk" : "keep"}`; badge.textContent = x.unsubscribe ? "unsubscribe" : "keep"; badge.title = `${x.reason || ""}${x.score != null ? `\nSignal score ${x.score}${x.signals?.length ? `: ${x.signals.join(", ")}` : ""}` : ""}\nClick to flip`;
     badge.onclick = (e) => { e.stopPropagation(); x.unsubscribe = !x.unsubscribe; x.sel = x.unsubscribe; render(); save(); };
     v.appendChild(badge);
     const why = document.createElement("div"); why.className = "lab small muted"; why.textContent = x.status ? `${x.status}${x.error ? ": " + x.error : ""}` : "";
@@ -317,7 +323,9 @@ function buildPlan() {
     }
     if (deleteIds.length || Object.keys(labelsMap).length) plan.ai.push({ rule: r.rule, query: r.query, deleteIds, labels: labelsMap, maxPages: Math.max(10, (r.rule.maxPages || 10) + 2) });
   }
-  plan.unsubscribe = (Array.isArray(preview.subscriptions) ? preview.subscriptions : []).filter((x) => (x.sel === undefined ? x.unsubscribe : x.sel)).map((x) => x.email);
+  const subs = Array.isArray(preview.subscriptions) ? preview.subscriptions : [];
+  plan.unsubscribe = subs.filter((x) => (x.sel === undefined ? x.unsubscribe : x.sel)).map((x) => x.email);
+  plan.unsubscribeVia = subs.some((x) => x.source === "inbox") ? "message" : "page";
   return plan;
 }
 
@@ -354,7 +362,8 @@ async function confirmPlan() {
     left.innerHTML = `<p>Cleaned. Run Preview again for another pass.</p>`;
     if (needSite.length) { const p = document.createElement("p"); p.textContent = `Need a website visit to unsubscribe: ${needSite.map((u) => u.email).join(", ")}`; left.appendChild(p); }
     const failed = un.filter((u) => !["done", "clicked", "needs-website"].includes(u.status));
-    if (failed.length) { const p = document.createElement("p"); p.textContent = `Could not unsubscribe: ${failed.map((u) => `${u.email} (${u.status})`).join(", ")}`; left.appendChild(p); }
+    const why = { "no-link": "Gmail shows no Unsubscribe link for it", "not-found": "no mail from it found" };
+    if (failed.length) { const p = document.createElement("p"); p.textContent = `Could not unsubscribe: ${failed.map((u) => `${u.email} (${why[u.status] || u.status})`).join(", ")}`; left.appendChild(p); }
     $("main").innerHTML = "";
     $("main").appendChild(left);
     preview = null;

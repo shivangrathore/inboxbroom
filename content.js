@@ -22,6 +22,9 @@
 
   let stopRequested = false;
   let running = false;
+  let undo = null; // this clean run's undo record: { label, marked, labeled: { label: [ids] }, warn }
+  const UNDO_LABEL_RE = /^Broom (undo|restored)\b/i; // our bookkeeping labels, never offered to the AI
+  const labelTerm = (l) => `label:${l.trim().replace(/\s+/g, "-")}`;
   let keepAliveTimer = null;
   const keepAlive = (on) => {
     clearInterval(keepAliveTimer);
@@ -326,7 +329,7 @@
       }
     }
     const all = new Map();
-    for (const l of [...page, ...menu, ...nav]) if (l && !/^(inbox|starred|sent|drafts|spam|trash|important|all mail|snoozed|scheduled|chats|unread|categories|more)$/i.test(l)) all.set(l.toLowerCase(), l);
+    for (const l of [...page, ...menu, ...nav]) if (l && !/^(inbox|starred|sent|drafts|spam|trash|important|all mail|snoozed|scheduled|chats|unread|categories|more)$/i.test(l) && !UNDO_LABEL_RE.test(l)) all.set(l.toLowerCase(), l);
     return [...all.values()];
   }
 
@@ -701,20 +704,29 @@
     return sub;
   }
 
-  /** Gmail "Label as" menu → tick label → Apply. Keeps mail where it is. Creates the label if missing. */
-  async function labelAs(label) {
+  /** Gmail "Label as" menu → tick label → Apply. Keeps mail where it is. Creates the label if missing; remove unticks it instead. */
+  async function labelAs(label, { remove = false } = {}) {
     const menu = await openLabelMenu();
     typeInto(menu.querySelector("input"), label);
     await sleep(600);
     const items = () => qa('[role="menuitemcheckbox"], [role="menuitem"], [role="option"]', menu);
     const exact = items().find((it) => txt(it).replace(/\s*\(\d+\)$/, "").toLowerCase() === label.toLowerCase());
     if (exact) {
-      if (exact.getAttribute("aria-checked") !== "true") click(exact);
+      if (!remove) {
+        if (exact.getAttribute("aria-checked") !== "true") click(exact);
+      } else if (exact.getAttribute("aria-checked") !== "false") {
+        click(exact);
+        await sleep(200);
+        if (exact.getAttribute("aria-checked") === "true") click(exact); // was mixed: the second click clears it
+      }
       await sleep(400);
       // classic menu shows an Apply button after ticking; the simplified submenu applies immediately
       const apply = qa('[role="button"], div.J-N, button', menu).find((b) => /^apply$/i.test(txt(b)));
       if (apply) click(apply);
       else if (labelMenuOpen()) closeMenus();
+    } else if (remove) {
+      closeMenus();
+      throw new Error(`label "${label}" not in the Label as menu`);
     } else {
       const create = items().find((it) => /create new/i.test(txt(it)));
       if (!create) throw new Error(`Label "${label}" not found and no "Create new". ${diag()}`);
@@ -764,11 +776,36 @@
     return { email, name, count: cm ? Number(cm[1]) : null, text: t.slice(0, 200) };
   }
 
-  async function openSubscriptions() {
+  /** Gmail's sidebar link to "Manage subscriptions" (hidden under "More" by default). */
+  function subscriptionsNavLink() {
+    return [...document.querySelectorAll('div[role="navigation"] a[href]')].find((a) => [txt(a), a.getAttribute("aria-label") || ""].some((t) => /^manage subscriptions/i.test(t))) || null;
+  }
+
+  const SUBS_HASH = "#sub"; // Gmail "Manage subscriptions" (sidebar → More)
+
+  /** Go to a view and wait for its Unsubscribe buttons. */
+  async function showSubscriptions(hash) {
     const before = unsubButtons().length;
-    location.hash = "#subscriptions";
+    location.hash = hash;
     await sleep(1200);
-    await waitFor(() => unsubButtons().length && (unsubButtons().length !== before || location.hash.includes("subscriptions")), { timeout: 10000 });
+    return !!(await waitFor(() => unsubButtons().length && (unsubButtons().length !== before || location.hash === hash), { timeout: 10000 }));
+  }
+
+  /** Opens "Manage subscriptions". Returns true, or why it could not. */
+  async function openSubscriptions() {
+    let ok = await showSubscriptions(SUBS_HASH);
+    if (!ok) {
+      // Gmail may have moved it: take the address from the sidebar link
+      let link = subscriptionsNavLink();
+      if (!link) {
+        await expandMore();
+        closeMenus(); // in case a toolbar "More" menu opened instead
+        link = await waitFor(subscriptionsNavLink, { timeout: 3000 });
+      }
+      const hash = (link?.getAttribute("href") || "").match(/#.+$/)?.[0];
+      if (hash && hash !== SUBS_HASH) ok = await showSubscriptions(hash);
+    }
+    if (!ok) return `Gmail "Manage subscriptions" (${SUBS_HASH}) showed no Unsubscribe buttons.`;
     // let the list finish rendering / lazy-load
     let last = -1;
     for (let i = 0; i < 20; i++) {
@@ -780,11 +817,12 @@
       const main = mainView();
       if (main) main.scrollTop = main.scrollHeight;
     }
-    return unsubButtons().length > 0;
+    return true;
   }
 
   async function listSubscriptions() {
-    if (!(await openSubscriptions())) throw new Error('Gmail "Manage subscriptions" page not found (no Unsubscribe buttons). Your Gmail may not have it yet.');
+    const opened = await openSubscriptions();
+    if (opened !== true) throw new Error(opened);
     const seen = new Map();
     for (const b of unsubButtons()) {
       const row = subscriptionRowOf(b);
@@ -794,46 +832,80 @@
     return [...seen.values()];
   }
 
-  /** Click Unsubscribe for each email on the subscriptions page. Returns per-email outcome. */
-  async function unsubscribeMany(emails) {
-    const out = [];
-    if (!(await openSubscriptions())) throw new Error('"Manage subscriptions" page not found');
-    for (const email of emails) {
-      if (stopRequested) break;
-      progress(`Unsubscribing ${email}…`);
-      const btn = unsubButtons().find((b) => parseSubscriptionRow(subscriptionRowOf(b)).email === email);
-      if (!btn) {
-        out.push({ email, status: "not-found" });
-        continue;
-      }
-      click(btn);
-      const dlg = await waitFor(dialog, { timeout: 4000 });
-      if (!dlg) {
-        // some rows unsubscribe instantly
-        await sleep(800);
-        out.push({ email, status: "clicked" });
-        continue;
-      }
-      const confirmBtn = dialogButton(/^unsubscribe$/i);
-      if (confirmBtn) {
-        click(confirmBtn);
-        await sleep(900);
-        // follow-up dialog (e.g. "Move to trash?") – decline politely
-        const d2 = dialog();
-        if (d2) {
-          const no = dialogButton(/^(no thanks|cancel|not now|close|done|ok)$/i);
-          if (no) click(no);
-          else closeMenus();
-          await sleep(400);
-        }
-        out.push({ email, status: "done" });
-      } else {
-        const site = dialogButton(/go to website|visit|open/i);
-        const cancel = dialogButton(/^(cancel|close|no thanks|not now)$/i);
-        if (cancel) click(cancel);
+  /** After clicking an Unsubscribe button or link: answer Gmail's dialog. Returns the outcome status. */
+  async function confirmUnsubscribe() {
+    const dlg = await waitFor(dialog, { timeout: 4000 });
+    if (!dlg) {
+      // some rows unsubscribe instantly
+      await sleep(800);
+      return "clicked";
+    }
+    const confirmBtn = dialogButton(/^unsubscribe$/i);
+    if (confirmBtn) {
+      click(confirmBtn);
+      await sleep(900);
+      // follow-up dialog (e.g. "Move to trash?") – decline politely
+      if (dialog()) {
+        const no = dialogButton(/^(no thanks|cancel|not now|close|done|ok)$/i);
+        if (no) click(no);
         else closeMenus();
         await sleep(400);
-        out.push({ email, status: site ? "needs-website" : "no-confirm" });
+      }
+      return "done";
+    }
+    const site = dialogButton(/go to website|visit|open/i);
+    const cancel = dialogButton(/^(cancel|close|no thanks|not now)$/i);
+    if (cancel) click(cancel);
+    else closeMenus();
+    await sleep(400);
+    return site ? "needs-website" : "no-confirm";
+  }
+
+  // the "Unsubscribe" link Gmail shows next to the sender of an open message; never a link inside the mail body
+  function headerUnsubLink() {
+    const main = mainView() || document;
+    const ok = (el) => /^unsubscribe$/i.test(txt(el)) && !el.closest('.a3s, a[href], [role="dialog"], [role="alertdialog"]');
+    return qa('[role="link"], [role="button"]', main).filter(ok).pop() || qa("span", main).filter(ok).pop() || null;
+  }
+
+  /** Open the sender's newest mail and use the Unsubscribe link in its header. */
+  async function unsubscribeViaMessage(email) {
+    await openSearch(`from:(${email})`);
+    const tr = rows().find((r) => parseRow(r).email === email) || rows()[0];
+    if (!tr) return "not-found";
+    click(tr.querySelector("span.bog") || tr);
+    await waitFor(() => !rows().length || headerUnsubLink(), { timeout: 8000 }); // thread view open
+    const link = headerUnsubLink() || (await waitFor(headerUnsubLink, { timeout: 2500 }));
+    if (!link) return "no-link";
+    click(link);
+    return confirmUnsubscribe();
+  }
+
+  /** Unsubscribe each email: on Gmail's subscriptions page when it exists (via "page"), else from the sender's latest mail. */
+  async function unsubscribeMany(emails, via = "page") {
+    const out = [];
+    let rest = emails;
+    if (via === "page" && (await openSubscriptions()) === true) {
+      rest = [];
+      for (const email of emails) {
+        if (stopRequested) break;
+        progress(`Unsubscribing ${email}…`);
+        const btn = unsubButtons().find((b) => parseSubscriptionRow(subscriptionRowOf(b)).email === email);
+        if (!btn) {
+          rest.push(email);
+          continue;
+        }
+        click(btn);
+        out.push({ email, status: await confirmUnsubscribe() });
+      }
+    }
+    for (const email of rest) {
+      if (stopRequested) break;
+      progress(`Unsubscribing ${email} from its latest mail…`);
+      try {
+        out.push({ email, status: await unsubscribeViaMessage(email) });
+      } catch (e) {
+        out.push({ email, status: "error", error: e.message });
       }
     }
     return out;
@@ -878,14 +950,16 @@
     return snapshot() !== before;
   }
 
-  function buildQuery(rule, allowlist, excludeLabels) {
+  function buildQuery(rule, allowlist, excludeLabels, restoredLabel) {
     let s = rule.query.trim();
     // safety: never touch archived mail unless the rule explicitly opts out
     if (rule.inboxOnly !== false && !/\bin:(inbox|anywhere|all)\b/i.test(s)) s = `in:inbox ${s}`;
     const list = (allowlist || []).map((x) => x.trim()).filter(Boolean);
     if (list.length) s += ` -from:(${list.join(" OR ")})`;
     // AI rules skip mail that already carries one of the labels we assign (handled by retention instead)
-    if (rule.type === "ai" && excludeLabels?.length) s += ` -{${excludeLabels.map((l) => `label:${l.trim().replace(/\s+/g, "-")}`).join(" ")}}`;
+    if (rule.type === "ai" && excludeLabels?.length) s += ` -{${excludeLabels.map(labelTerm).join(" ")}}`;
+    // mail you brought back with Undo stays out of every rule
+    if (restoredLabel) s += ` -${labelTerm(restoredLabel)}`;
     return s;
   }
 
@@ -955,7 +1029,8 @@
     await waitSelectionCleared();
   }
 
-  async function bulkAction(rule) {
+  /** Tick every row, then Gmail's "Select all N conversations". */
+  async function selectAllMatching() {
     const cb = await waitFor(selectAllCheckbox, { timeout: 5000 });
     if (!cb) throw new Error(`Select-all checkbox not found. ${diag()}`);
     if (cb.getAttribute("aria-checked") !== "true") click(cb);
@@ -970,18 +1045,182 @@
       click(link);
       await sleep(600);
     }
+  }
+
+  /** Tag the selection with this run's undo label before it is trashed or archived. A failure only costs the undo. */
+  async function markForUndo(rule, select) {
+    if (!undo?.label || undo.warn || rule.action === "label") return;
+    try {
+      await select();
+      await labelAs(undo.label);
+      undo.marked = true;
+    } catch (e) {
+      undo.warn = `Undo label failed, the rest of this run cannot be undone: ${e.message}`;
+      closeMenus();
+      await sleep(300);
+      await clearSelection();
+    }
+  }
+  const noteLabeled = (label, ids) => {
+    if (undo) (undo.labeled[label] = undo.labeled[label] || []).push(...ids);
+  };
+
+  async function bulkAction(rule) {
+    await markForUndo(rule, selectAllMatching);
+    await selectAllMatching();
     await fireAction(rule);
   }
 
   async function rowAction(trs, rule) {
-    for (const tr of trs) {
-      const cb = rowCheckbox(tr);
-      if (cb.getAttribute && cb.getAttribute("aria-checked") === "true") continue;
-      click(cb);
-      await sleep(60);
-    }
-    await sleep(400);
+    // select by thread id: labeling for undo re-renders the rows
+    const ids = new Set(trs.map((tr) => parseRow(tr).id));
+    const select = async () => {
+      for (const [id, list] of rowsById()) {
+        if (!ids.has(id)) continue;
+        for (const tr of list) {
+          const cb = rowCheckbox(tr);
+          if (cb.getAttribute && cb.getAttribute("aria-checked") === "true") continue;
+          click(cb);
+          await sleep(60);
+        }
+      }
+      await sleep(400);
+    };
+    await markForUndo(rule, select);
+    await select();
     await fireAction(rule);
+  }
+
+  async function moveToInbox() {
+    const direct = await waitFor(() => toolbarButton("Move to Inbox"), { timeout: 3000 });
+    if (!direct) return moveToLabel("Inbox");
+    click(direct);
+    const ok = await waitFor(dialogOk, { timeout: 2500 });
+    if (ok) click(ok);
+    await waitSelectionCleared();
+  }
+
+  /** Settings → Labels → remove. Mail keeps its place, only the label goes. False if it was already gone. */
+  async function deleteLabel(name) {
+    await openLabelSettings();
+    const row = settingsLabelRow(name);
+    if (!row) return false;
+    const rm = rowLink(row, /^remove$/i);
+    if (!rm) throw new Error(`no remove link for "${name}"`);
+    click(rm);
+    if (!(await waitFor(dialog, { timeout: 5000 }))) throw new Error("remove label dialog did not open");
+    const del = dialogButton(/^(delete|remove|ok)$/i);
+    if (!del) throw new Error("Delete button not found in the remove label dialog");
+    click(del);
+    await sleep(900);
+    return true;
+  }
+
+  /** Take a label off specific threads: search the label, tick those rows page by page, untick it in "Label as". */
+  async function unlabelIds(label, ids) {
+    const todo = new Set(ids);
+    const done = [];
+    const query = labelTerm(label);
+    await openSearch(query);
+    for (let i = 0; i < 20 && todo.size && !stopRequested && rows().length; i++) {
+      const hit = [...rowsById()].filter(([id]) => todo.has(id));
+      if (!hit.length) {
+        if (!(await nextPage())) break;
+        continue;
+      }
+      for (const [, list] of hit) for (const tr of list) if (rowCheckbox(tr).getAttribute?.("aria-checked") !== "true") click(rowCheckbox(tr));
+      await sleep(300);
+      await labelAs(label, { remove: true });
+      for (const [id] of hit) {
+        todo.delete(id);
+        done.push(id);
+      }
+      await openSearch(query); // unlabeled rows drop out of the results
+    }
+    return done;
+  }
+
+  /** Delete expired undo labels. Returns the ones that are gone. */
+  async function dropUndoLabels(labels) {
+    const gone = [];
+    for (const l of labels || []) {
+      if (stopRequested) break;
+      progress(`Removing expired undo label "${l}"…`);
+      try {
+        await deleteLabel(l);
+        gone.push(l);
+      } catch (e) {
+        console.warn("[Inbox Broom] undo label not removed:", l, e.message);
+      }
+    }
+    return gone;
+  }
+
+  const undoReport = () => (undo && (undo.marked || Object.keys(undo.labeled).length) ? { label: undo.marked ? undo.label : null, labeled: undo.labeled, warn: undo.warn || null } : null);
+
+  /**
+   * Undo a run: tag its trashed/archived mail "Broom restored" (rules skip that label, so the next run leaves it),
+   * move it back to the Inbox, delete the run's undo label, and take its AI labels off again.
+   */
+  async function undoRun({ at, label, labeled, restoredLabel }) {
+    if (running) throw new Error("Already running");
+    running = true;
+    keepAlive(true);
+    stopRequested = false;
+    const startHash = location.hash;
+    const out = { at, restored: 0, unlabeled: 0, unlabeledIds: [], labelDropped: false, warnings: [] };
+    try {
+      for (const { label: l, ids } of labeled || []) {
+        if (stopRequested) break;
+        progress(`Undo: removing "${l}" from ${ids.length} mail(s)…`);
+        try {
+          const done = await unlabelIds(l, ids);
+          out.unlabeled += done.length;
+          out.unlabeledIds.push(...done);
+        } catch (e) {
+          out.warnings.push(`"${l}" not removed: ${e.message}`);
+          closeMenus();
+          await clearSelection();
+        }
+      }
+      if (label && !stopRequested) {
+        const query = `in:anywhere -in:inbox ${labelTerm(label)}`;
+        await openSearch(query);
+        const total = readCount();
+        for (let pass = 0; pass < 10 && readCount() > 0 && !stopRequested; pass++) {
+          progress(`Undo: moving ${readCount()} conversation(s) back to the Inbox…`);
+          await selectAllMatching();
+          await labelAs(restoredLabel);
+          await selectAllMatching();
+          await moveToInbox();
+          await openSearch(query);
+        }
+        out.restored = total - readCount();
+        if (readCount() === 0 && !stopRequested) {
+          try {
+            await deleteLabel(label);
+            out.labelDropped = true;
+          } catch (e) {
+            out.warnings.push(`Undo label "${label}" not removed: ${e.message}`);
+          }
+        }
+      }
+      if (stopRequested) out.error = "Stopped";
+      progress(`Undone: ${out.restored} back in the Inbox, ${out.unlabeled} unlabeled.${out.warnings.length ? ` ${out.warnings.join(" | ")}` : ""}`, out.warnings.length ? "error" : "ok");
+      location.hash = startHash && !/^#(search|settings)/.test(startHash) ? startHash : "#inbox";
+      hideBanner(6000);
+    } catch (e) {
+      out.error = e.message;
+      progress(`Undo error: ${e.message}`, "error");
+      console.error("[Inbox Broom]", e, diag());
+      hideBanner(10000);
+    } finally {
+      running = false;
+      keepAlive(false);
+      browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } }).catch(() => {});
+    }
+    await browser.__send({ type: "undoFinished", ...out }).catch(() => {});
+    return out;
   }
 
   // ------------------------------------------------------------ rules
@@ -1066,6 +1305,7 @@
             }
             await sleep(300);
             await labelAs(label);
+            noteLabeled(label, ids);
             entry.labeled = (entry.labeled || 0) + lt.length;
             const merged = {};
             for (const id of ids) if (cache[id]) merged[id] = cache[id] = { ...cache[id], labeled: true };
@@ -1091,11 +1331,12 @@
     }
   }
 
-  async function run({ mode, rules, allowlist, returnToInbox, aiCache, rescore, subscriptions, excludeLabels }) {
+  async function run({ mode, rules, allowlist, returnToInbox, aiCache, rescore, subscriptions, excludeLabels, undoLabel, dropLabels, restoredLabel }) {
     if (running) throw new Error("Already running");
     running = true;
     keepAlive(true);
     stopRequested = false;
+    undo = mode === "clean" && undoLabel ? { label: undoLabel, marked: false, labeled: {}, warn: null } : null;
     const startHash = location.hash;
     const results = [];
     const ctx = { aiCache: aiCache || {}, rescore: !!rescore, labels: [] };
@@ -1111,7 +1352,7 @@
       }
       for (const rule of rules) {
         if (stopRequested) break;
-        const query = buildQuery(rule, allowlist, excludeLabels);
+        const query = buildQuery(rule, allowlist, excludeLabels, restoredLabel);
         progress(`${mode === "scan" ? "Previewing" : "Cleaning"}: ${rule.name}…`);
         const entry = { rule, query, count: 0, done: 0, items: [], warnings: [] };
         if (rule.type === "ai") await runAiRule(rule, query, mode, entry, ctx);
@@ -1129,6 +1370,7 @@
           subs = { error: e.message };
         }
       }
+      const droppedLabels = mode === "clean" ? await dropUndoLabels(dropLabels) : [];
       const matched = results.reduce((n, r) => n + (r.rule.type === "ai" ? r.items.filter((i) => i.junk).length : r.count), 0);
       progress(mode === "scan" ? `Preview done: ${matched} to clean.` : `Done: ${total} conversation(s) cleaned.`, "ok");
       if (returnToInbox) location.hash = startHash && !startHash.startsWith("#search/") ? startHash : "#inbox";
@@ -1141,6 +1383,8 @@
         total,
         stopped: stopRequested,
         summary: results.map((r) => ({ rule: r.rule.name, action: r.rule.action, count: r.done })),
+        undo: undoReport(),
+        droppedLabels,
       };
       if (mode === "scan") await browser.__send({ type: "scanFinished", ...out }).catch((e) => progress(`Error saving preview: ${e.message}`, "error"));
       else await browser.__send({ type: "runFinished", ...out }).catch(() => {});
@@ -1174,19 +1418,29 @@
    *   ai:   [{ rule, query, deleteIds: [], labels: { "Label": [ids] }, maxPages }],
    * }
    */
-  async function apply({ plan, allowlist, returnToInbox }) {
+  async function apply({ plan, allowlist, returnToInbox, undoLabel, dropLabels, restoredLabel }) {
     if (running) throw new Error("Already running");
     running = true;
     keepAlive(true);
     stopRequested = false;
+    undo = undoLabel ? { label: undoLabel, marked: false, labeled: {}, warn: null } : null;
     const startHash = location.hash;
     const summary = [];
     let total = 0;
     try {
+      // unsubscribe first: the per-mail route needs the sender's mail before it goes to Trash
+      let unsub = [];
+      if ((plan.unsubscribe || []).length && !stopRequested) {
+        try {
+          unsub = await unsubscribeMany(plan.unsubscribe, plan.unsubscribeVia);
+        } catch (e) {
+          unsub = plan.unsubscribe.map((email) => ({ email, status: "error", error: e.message }));
+        }
+      }
       for (const b of plan.bulk || []) {
         if (stopRequested) break;
         const rule = b.rule;
-        const query = buildQuery(rule, allowlist);
+        const query = buildQuery(rule, allowlist, null, restoredLabel);
         const entry = { rule, query, count: 0, done: 0, items: [] };
         progress(`Cleaning: ${rule.name}…`);
         await runQueryRule(rule, query, "clean", entry);
@@ -1196,7 +1450,7 @@
       for (const a of plan.ai || []) {
         if (stopRequested) break;
         const rule = a.rule;
-        const query = a.query || buildQuery(rule, allowlist);
+        const query = a.query || buildQuery(rule, allowlist, null, restoredLabel);
         const del = new Set(a.deleteIds || []);
         const labelOf = new Map();
         for (const [label, ids] of Object.entries(a.labels || {})) for (const id of ids) labelOf.set(id, label);
@@ -1224,6 +1478,7 @@
               await sleep(300);
               await labelAs(label);
               ids.forEach((id) => pending.delete(id));
+              noteLabeled(label, ids);
               labeled += trs.length;
               browser.runtime.sendMessage({ type: "aiCacheMerge", entries: Object.fromEntries(ids.map((id) => [id, { junk: false, label, labeled: true, at: Date.now() }])) }).catch(() => {});
             } catch (e) {
@@ -1251,19 +1506,12 @@
         total += done;
         summary.push({ rule: rule.name, action: rule.action, count: done, labeled, warn, skipped: pending.size });
       }
-      let unsub = [];
-      if ((plan.unsubscribe || []).length && !stopRequested) {
-        try {
-          unsub = await unsubscribeMany(plan.unsubscribe);
-        } catch (e) {
-          unsub = plan.unsubscribe.map((email) => ({ email, status: "error", error: e.message }));
-        }
-      }
+      const droppedLabels = await dropUndoLabels(dropLabels);
       const unsubDone = unsub.filter((u) => u.status === "done" || u.status === "clicked").length;
       progress(`Done: ${total} deleted, ${summary.reduce((n, x) => n + (x.labeled || 0), 0)} labeled, ${unsubDone} unsubscribed.`, "ok");
-      if (returnToInbox) location.hash = startHash && !startHash.startsWith("#search/") ? startHash : "#inbox";
+      if (returnToInbox) location.hash = startHash && !/^#(search|settings)/.test(startHash) ? startHash : "#inbox";
       hideBanner(4000);
-      const out = { total, summary, unsubscribe: unsub, stopped: stopRequested };
+      const out = { total, summary, unsubscribe: unsub, stopped: stopRequested, undo: undoReport(), droppedLabels };
       await browser.__send({ type: "applyFinished", ...out }).catch((e) => progress(`Error saving result: ${e.message}`, "error"));
       return out;
     } catch (e) {
@@ -1293,6 +1541,11 @@
     if (msg.type === "stop") {
       stopRequested = true;
       return true;
+    }
+    if (msg.type === "undo") {
+      if (running) throw new Error("Already running");
+      undoRun(msg).catch(() => {});
+      return { started: true };
     }
     if (msg.type === "ping") return { running };
     if (msg.type === "diag") return diag();

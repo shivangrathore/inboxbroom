@@ -276,8 +276,76 @@ async function migrate() {
 const getStore = async (key, fallback) => (await browser.storage.local.get(key))[key] || fallback;
 const getAiCache = () => getStore("aiCache", {});
 const getSenderStats = () => getStore("senderStats", {});
+const getEngagement = () => getStore("senderEngagement", {});
+
+// ---------------------------------------------------------------- undo
+
+const UNDO_DAYS = 7;
+const RESTORED_LABEL = "Broom restored"; // mail brought back by Undo; every rule skips it
+/** Per-run Gmail label put on everything a clean run trashes or archives, so Undo can find it. */
+function undoLabelName(at) {
+  const d = new Date(at);
+  const p = (n) => String(n).padStart(2, "0");
+  return `Broom undo ${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+const undoable = (h) => !!h?.undo && !h.undo.undone && Date.now() - h.at < UNDO_DAYS * DAY_MS && !!(h.undo.label || Object.keys(h.undo.labeled || {}).length);
+
+/** Undo fields for a clean/apply payload: this run's label, expired labels to delete, the restored label once it exists. */
+async function undoPayload() {
+  const labels = await getStore("undoLabels", {});
+  const now = Date.now();
+  return {
+    undoLabel: undoLabelName(now),
+    dropLabels: Object.entries(labels).filter(([, v]) => v.undone || now - v.at > UNDO_DAYS * DAY_MS).map(([l]) => l),
+    restoredLabel: (await getStore("restoredLabelMade", false)) ? RESTORED_LABEL : null,
+  };
+}
+
+/** Settings with a history entry for a finished clean/apply; tracks the run's undo label until it is deleted. */
+async function withHistoryEntry(res) {
+  const s = await getSettings();
+  const entry = { at: Date.now(), total: res.total, summary: res.summary };
+  if (res.undo) entry.undo = res.undo;
+  const labels = await getStore("undoLabels", {});
+  if (res.undo?.label) labels[res.undo.label] = { at: entry.at };
+  for (const l of res.droppedLabels || []) delete labels[l];
+  await browser.storage.local.set({ undoLabels: labels });
+  return { ...s, history: [entry, ...(s.history || [])].slice(0, 50) };
+}
+
+async function onUndoFinished(res) {
+  const s = await getSettings();
+  const ok = !res.error;
+  const history = (s.history || []).map((h) => (h.at === res.at && h.undo && ok ? { ...h, undo: { ...h.undo, undone: { at: Date.now(), restored: res.restored, unlabeled: res.unlabeled } } } : h));
+  const entry = history.find((h) => h.at === res.at);
+  const labels = await getStore("undoLabels", {});
+  const label = entry?.undo?.label;
+  if (label && res.labelDropped) delete labels[label];
+  else if (label && ok && labels[label]) labels[label].undone = true; // delete on the next run
+  // labels you undid stay off: pin those threads as kept, no label
+  const cache = await getAiCache();
+  for (const id of res.unlabeledIds || []) cache[id] = { ...(cache[id] || {}), junk: false, label: "", labeled: false, manual: true, reason: "label undone", at: Date.now() };
+  const patch = { settings: { ...s, history }, undoLabels: labels, aiCache: cache, undoResult: { at: Date.now(), ...res } };
+  if (res.restored > 0) patch.restoredLabelMade = true;
+  await browser.storage.local.set(patch);
+}
 
 // ---------------------------------------------------------------- gmail tab
+
+/** Message the Gmail content script, waiting for it to load in a fresh tab. */
+async function sendToGmail(tabId, payload) {
+  let lastErr;
+  for (let i = 0; i < 30; i++) {
+    try {
+      return await browser.__tabSend(tabId, payload);
+    } catch (e) {
+      lastErr = e;
+      if (!/receiving end|Could not establish/i.test(e.message)) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw lastErr || new Error("Gmail tab did not respond");
+}
 
 async function findGmailTab({ create = false } = {}) {
   const tabs = await browser.tabs.query({ url: "https://mail.google.com/*" });
@@ -292,14 +360,12 @@ async function applyPlan(plan) {
   if (!tab) throw new Error("NO_GMAIL_TAB");
   await browser.tabs.update(tab.id, { active: true });
   await browser.storage.local.set({ applyResult: null });
-  return browser.__tabSend(tab.id, { type: "apply", plan, allowlist: settings.allowlist, returnToInbox: settings.returnToInbox }); // { started: true }
+  return browser.__tabSend(tab.id, { type: "apply", plan, allowlist: settings.allowlist, returnToInbox: settings.returnToInbox, ...(await undoPayload()) }); // { started: true }
 }
 
 async function onApplyFinished(res) {
-  const s = await getSettings();
-  const entry = { at: Date.now(), total: res.total, summary: res.summary };
   await browser.storage.local.set({
-    settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) },
+    settings: await withHistoryEntry(res),
     lastPreview: null,
     applyResult: { at: Date.now(), ...res },
   });
@@ -331,18 +397,9 @@ async function runInGmail(mode, { focus = false, create = false, ruleIds = null,
     excludeLabels,
     rescore,
     subscriptions: mode === "scan" && settings.ai.unsubscribe !== false,
+    ...(await undoPayload()), // undoLabel / dropLabels are only used by clean runs
   };
-  let lastErr;
-  for (let i = 0; i < 30; i++) {
-    try {
-      return await browser.__tabSend(tab.id, payload); // content replies { started: true } at once
-    } catch (e) {
-      lastErr = e;
-      if (!/receiving end|Could not establish/i.test(e.message)) throw e;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-  throw lastErr || new Error("Gmail tab did not respond");
+  return sendToGmail(tab.id, payload); // content replies { started: true } at once
 }
 
 async function openReviewTab() {
@@ -355,7 +412,14 @@ async function openReviewTab() {
 /** Called by the content script when a scan finishes: enrich subscriptions, store the preview, open the review tab. */
 async function onScanFinished(res, { openReview = true } = {}) {
   if (Array.isArray(res.labels) && res.labels.length) await browser.storage.local.set({ knownLabels: res.labels });
+  await recordEngagement(res.results).catch((e) => console.warn("[cleaner] engagement not recorded:", e.message));
   let subscriptions = res.subscriptions || null;
+  if (subscriptions && (subscriptions.error || !subscriptions.length)) {
+    const fromInbox = await subscriptionsFromInbox(res.results);
+    subscriptions = fromInbox.length
+      ? fromInbox
+      : { error: `${(subscriptions.error || "Gmail listed no subscriptions").replace(/\.?$/, ".")} No bulk sender seen twice in your scans yet either; Preview again after more mail arrives.` };
+  }
   if (Array.isArray(subscriptions) && subscriptions.length) {
     await browser.storage.local.set({ progress: { text: `AI reviewing ${subscriptions.length} subscriptions…`, at: Date.now(), running: true } });
     try {
@@ -484,8 +548,20 @@ const RESULT_SCHEMA = {
   required: ["results"],
 };
 
+/** Firefox built-in data consent: mail text only goes to a non-local provider once the user allowed it. */
+async function cloudConsentGranted(ai) {
+  if (browser.__isChromium || (ai.provider !== "openai" && ai.provider !== "anthropic")) return true;
+  if (ai.provider === "openai") {
+    let host = "";
+    try { host = new URL(ai.openaiEndpoint || "https://api.openai.com/v1").hostname; } catch {}
+    if (["localhost", "127.0.0.1", "[::1]"].includes(host)) return true;
+  }
+  return browser.permissions.contains({ data_collection: ["personalCommunications"] });
+}
+
 /** Routes a chat completion to the configured provider. Returns the assistant text. */
 async function llmChat(ai, messages, opts = {}) {
+  if (!(await cloudConsentGranted(ai))) throw new Error("Sending mail to the cloud provider isn't allowed yet. Settings → Local AI → Test connection, then allow it.");
   if (ai.provider === "openai") return openaiChat(ai, messages, opts);
   if (ai.provider === "anthropic") return anthropicChat(ai, messages, opts);
   return ollamaChat(ai, messages, opts);
@@ -757,7 +833,117 @@ const UNSUB_PROMPT = `You help {{persona}} prune their Gmail subscriptions. For 
 
 Unsubscribe = sender adds no value: marketing, promotions, sales, coupons, newsletters they never read, news digests, social-network notification mail, job-board digests, course/webinar/coach pitches, "we miss you", product announcements, community digests, app engagement nudges, review requests.
 Keep = sender also carries things the person needs: banks, brokers, payment providers, tax/government, couriers and shops they order from (order updates share the same sender as promos), domain/hosting/SaaS they pay for, GitHub/CI, utilities, telecom, insurance, school/university, healthcare, employers, clients, recruiters they talk to, security/account alerts.
+"Opened" tells how many of the sender's recent inbox mails the person actually opened. Never or rarely opened, especially at high volume, is a strong reason to unsubscribe; a sender whose mail they usually open is one they value: keep.
 If a sender is a shop or service the person transacts with, keep (unsubscribing may also stop order mail). When in doubt, keep.`;
+
+const DAY_MS = 86400000;
+const UNSUB_FALLBACK_SCORE = 70; // no model verdict: suggest at this signal score
+const UNSUB_STRONG_SCORE = 90; // never opened + always junk: suggest even if the model said keep
+
+/** Gmail row date ("Tue, Nov 18, 2025, 10:42 AM") → age in ms; time-only = today; null if unparseable. */
+function rowAge(date) {
+  const d = String(date || "").replace(/[  ]/g, " ").replace(/ at /, " ").trim();
+  if (/^\d{1,2}:\d{2}( ?[ap]m)?$/i.test(d)) return 0;
+  const t = Date.parse(d);
+  return Number.isNaN(t) ? null : Date.now() - t;
+}
+
+/** Per sender, remember which scanned inbox threads were opened (1) or left unread (0). Feeds unsubscribe suggestions. */
+async function recordEngagement(results) {
+  const eng = await getEngagement();
+  for (const r of results || []) {
+    for (const it of r.items || []) {
+      if (!it.email || !it.id) continue;
+      const e = (eng[it.email] = eng[it.email] || { t: {} });
+      const opened = !it.unread;
+      // keep an earlier state for unread rows; unread mail younger than a day says nothing yet
+      if (!opened && (it.id in e.t || (rowAge(it.date) ?? DAY_MS) < DAY_MS)) continue;
+      e.t[it.id] = opened ? 1 : 0;
+      e.at = Date.now();
+      const ids = Object.keys(e.t);
+      if (ids.length > 60) for (const id of ids.slice(0, ids.length - 60)) delete e.t[id];
+    }
+  }
+  const emails = Object.keys(eng);
+  if (emails.length > 3000) emails.sort((a, b) => (eng[a].at || 0) - (eng[b].at || 0)).slice(0, emails.length - 3000).forEach((k) => delete eng[k]);
+  await browser.storage.local.set({ senderEngagement: eng });
+}
+
+const PERSONAL_DOMAIN = /^(gmail|googlemail|yahoo|outlook|hotmail|live|proton|protonmail|icloud|me)\./i;
+
+/** Without Gmail's "Manage subscriptions" page: bulk senders seen at least twice in scans become the candidates. */
+async function subscriptionsFromInbox(results) {
+  const eng = await getEngagement();
+  const stats = await getSenderStats();
+  const names = {};
+  const inBulkRule = new Set(); // found by a query rule (Promotions, Social…) this run
+  for (const r of results || []) {
+    for (const it of r.items || []) {
+      if (!it.email) continue;
+      names[it.email] = names[it.email] || it.sender;
+      if (r.rule?.type !== "ai") inBulkRule.add(it.email);
+    }
+  }
+  for (const l of await getStore("aiLog", [])) if (l.email && !names[l.email]) names[l.email] = l.sender;
+  const out = [];
+  for (const [email, e] of Object.entries(eng)) {
+    const [local, domain] = email.split("@");
+    if (!domain || PERSONAL_DOMAIN.test(domain)) continue;
+    const st = stats[email];
+    const seen = Object.keys(e.t || {}).length;
+    const bulky = AUTOMATED_LOCAL.test(local) || (st?.junk || 0) > 0 || st?.manual === "junk" || inBulkRule.has(email);
+    if (seen < 2 || !bulky) continue;
+    if (TRANSACTIONAL_SENDER.test(`${names[email] || ""} ${email}`) && !(st?.junk > 0)) continue;
+    out.push({ email, name: names[email] || email, count: seen, source: "inbox" });
+  }
+  return out.sort((a, b) => b.count - a.count).slice(0, 60);
+}
+
+/** Deterministic 0-100 unsubscribe score from engagement, triage history and volume. Shown in the review and used without a model. */
+function unsubSignals(m) {
+  let s = 50;
+  const sig = [];
+  if (m.seen >= 3) {
+    const rate = m.opened / m.seen;
+    if (!m.opened) { s += 25; sig.push(`never opened (0/${m.seen})`); }
+    else if (rate < 0.2) { s += 15; sig.push(`rarely opened (${m.opened}/${m.seen})`); }
+    else if (rate >= 0.5) { s -= 25; sig.push(`usually opened (${m.opened}/${m.seen})`); }
+    else sig.push(`opened ${m.opened}/${m.seen}`);
+  }
+  const triaged = m.junkSeen + m.keepSeen;
+  if (triaged >= 2) {
+    if (!m.keepSeen) { s += 20; sig.push(`junk ${m.junkSeen}/${triaged} in triage`); }
+    else if (m.keepSeen > m.junkSeen) { s -= 20; sig.push(`kept ${m.keepSeen}/${triaged} in triage`); }
+  }
+  if ((m.count || 0) >= 20) { s += 10; sig.push(`high volume (${m.count})`); }
+  if (m.subjects.some((x) => MARKETING_WORDS.test(x))) { s += 5; sig.push("marketing subjects"); }
+  if (m.transactional) { s -= 40; sig.push("transactional sender"); }
+  return { score: Math.max(0, Math.min(100, s)), signals: sig };
+}
+
+/** Final pre-selection: model verdict (signal score without one), then safety guards, then your sender rules. */
+function decideUnsub(m, v, error) {
+  const hasVerdict = typeof v?.unsubscribe === "boolean";
+  let unsub = hasVerdict ? v.unsubscribe : m.score >= UNSUB_FALLBACK_SCORE;
+  const fallback = error ? `signals only – model error: ${error.slice(0, 50)}` : "no model verdict; signals only";
+  let reason = (hasVerdict && v.reason) || (m.manual ? "your sender rule" : hasVerdict ? "" : fallback);
+  if (!m.manual) {
+    if (!unsub && !m.transactional && m.score >= UNSUB_STRONG_SCORE) {
+      unsub = true;
+      reason = `${m.signals.slice(0, 2).join(", ")} – overrides model keep`;
+    }
+    if (unsub && m.transactional) {
+      unsub = false;
+      reason = `${reason} – transactional sender, kept by default`;
+    } else if (unsub && m.seen >= 3 && m.opened / m.seen >= 0.5) {
+      unsub = false;
+      reason = `${reason} – you open most of these, kept`;
+    }
+  }
+  if (m.manual === "junk") unsub = true;
+  if (m.manual === "keep") unsub = false;
+  return { unsubscribe: unsub, reason };
+}
 
 // senders the person likely transacts with: never auto-suggest unsubscribing (user can still tick them)
 const TRANSACTIONAL_SENDER = /(bank|hdfc|icici|sbi|axis|kotak|idfc|yes ?bank|rbl|indusind|zerodha|groww|upstox|angel ?one|kite|coin|paytm|phonepe|gpay|razorpay|cashfree|stripe|paypal|cred\b|bobcard|cibil|experian|crif|equifax|amazon|flipkart|myntra|ajio|meesho|swiggy|zomato|blinkit|zepto|instamart|bigbasket|dunzo|shiprocket|delhivery|bluedart|dtdc|ekart|hostinger|godaddy|namecheap|cloudflare|aws|amazonaws|digitalocean|hetzner|vercel|netlify|github|gitlab|bitbucket|google|microsoft|apple|uidai|gov\.in|nic\.in|incometax|irctc|makemytrip|goibibo|cleartrip|airbnb|uber|ola\b|rapido|jio|airtel|vodafone|bsnl|tata ?play|lic\b|insurance|policybazaar|upwork|fiverr|toptal|freelancer|naukri|linkedin\.com\/jobs|epfo|nps|mutual ?fund|camsonline|kfintech)/i;
@@ -767,6 +953,7 @@ async function aiSuggestUnsubscribe(subs) {
   if (!Array.isArray(subs) || !subs.length) return subs;
   const log = await getStore("aiLog", []);
   const stats = await getSenderStats();
+  const eng = await getEngagement();
   const subjectsBy = {};
   for (const l of log) {
     if (!l.email) continue;
@@ -779,19 +966,34 @@ async function aiSuggestUnsubscribe(subs) {
     const d = e.split("@")[1];
     if (d) (byDomain[d] = byDomain[d] || []).push(...subj);
   }
+  const tally = (e) => {
+    const v = Object.values(e?.t || {});
+    return { seen: v.length, opened: v.filter(Boolean).length };
+  };
+  const engByDomain = {};
+  for (const [e, x] of Object.entries(eng)) {
+    const d = e.split("@")[1];
+    if (!d) continue;
+    const t = tally(x);
+    const acc = (engByDomain[d] = engByDomain[d] || { seen: 0, opened: 0 });
+    acc.seen += t.seen;
+    acc.opened += t.opened;
+  }
   const enriched = subs.map((sub) => {
     const d = (sub.email || "").split("@")[1];
     const subjects = (subjectsBy[sub.email] || byDomain[d] || []).slice(0, 4);
     const st = stats[sub.email];
     const transactional = TRANSACTIONAL_SENDER.test(`${sub.name} ${sub.email}`) || subjects.some((x) => STRONG_KEEP.test(x));
-    return { ...sub, subjects, junkSeen: st?.junk || 0, keepSeen: st?.keep || 0, manual: st?.manual || null, transactional };
+    const { seen, opened } = eng[sub.email] ? tally(eng[sub.email]) : engByDomain[d] || { seen: 0, opened: 0 };
+    const m = { ...sub, subjects, junkSeen: st?.junk || 0, keepSeen: st?.keep || 0, manual: st?.manual || null, transactional, seen, opened };
+    return { ...m, ...unsubSignals(m) };
   });
   const size = 15;
   const out = [];
   for (let i = 0; i < enriched.length; i += size) {
     const batch = enriched.slice(i, i + size);
     const list = batch
-      .map((m, k) => `${k + 1}. ${m.name} <${m.email}>${m.count ? ` – ${m.count} emails` : ""}${m.subjects.length ? `\n   Recent subjects: ${m.subjects.map((x) => JSON.stringify(x)).join("; ")}` : ""}${m.junkSeen || m.keepSeen ? `\n   Earlier triage: ${m.junkSeen} junk / ${m.keepSeen} keep` : ""}${m.transactional ? "\n   Hint: a service the person transacts with" : ""}`)
+      .map((m, k) => `${k + 1}. ${m.name} <${m.email}>${m.count ? ` – ${m.count} emails` : ""}${m.subjects.length ? `\n   Recent subjects: ${m.subjects.map((x) => JSON.stringify(x)).join("; ")}` : ""}${m.seen ? `\n   Opened: ${m.opened} of the last ${m.seen} seen in the inbox` : ""}${m.junkSeen || m.keepSeen ? `\n   Earlier triage: ${m.junkSeen} junk / ${m.keepSeen} keep` : ""}${m.transactional ? "\n   Hint: a service the person transacts with" : ""}`)
       .join("\n");
     try {
       const content = await llmChat(ai, [
@@ -800,20 +1002,9 @@ async function aiSuggestUnsubscribe(subs) {
       ], { format: UNSUB_SCHEMA, numPredict: 60 * batch.length + 60 });
       const arr = extractJson(content).results || [];
       const byN = new Map(arr.map((x) => [Number(x.n), x]));
-      batch.forEach((m, k) => {
-        const v = byN.get(k + 1);
-        let unsub = !!(v && v.unsubscribe === true);
-        let reason = v?.reason || (m.manual ? "your sender rule" : "no verdict");
-        if (unsub && m.transactional && !m.manual) {
-          unsub = false;
-          reason = `${reason} – transactional sender, kept by default`;
-        }
-        if (m.manual === "junk") unsub = true;
-        if (m.manual === "keep") unsub = false;
-        out.push({ ...m, unsubscribe: unsub, reason });
-      });
+      batch.forEach((m, k) => out.push({ ...m, ...decideUnsub(m, byN.get(k + 1)) }));
     } catch (e) {
-      batch.forEach((m) => out.push({ ...m, unsubscribe: m.manual === "junk", reason: `model error: ${e.message.slice(0, 50)}` }));
+      batch.forEach((m) => out.push({ ...m, ...decideUnsub(m, null, e.message) }));
     }
   }
   return out;
@@ -925,6 +1116,19 @@ browser.__onMessage(async (msg) => {
     case "applyFinished":
       await onApplyFinished(msg);
       return true;
+    case "undo": {
+      const h = ((await getSettings()).history || []).find((x) => x.at === msg.at);
+      if (!undoable(h)) throw new Error(`Nothing to undo for this run (undo is kept ${UNDO_DAYS} days).`);
+      const tab = await findGmailTab({ create: true });
+      if (!tab) throw new Error("NO_GMAIL_TAB");
+      await browser.tabs.update(tab.id, { active: true });
+      await browser.storage.local.set({ undoResult: null });
+      const labeled = Object.entries(h.undo.labeled || {}).map(([label, ids]) => ({ label, ids }));
+      return sendToGmail(tab.id, { type: "undo", at: h.at, label: h.undo.label, labeled, restoredLabel: RESTORED_LABEL }); // { started: true }
+    }
+    case "undoFinished":
+      await onUndoFinished(msg);
+      return true;
     case "keepalive":
       return true;
     case "stop": {
@@ -934,9 +1138,8 @@ browser.__onMessage(async (msg) => {
     }
     case "runFinished": {
       if (msg.mode !== "clean") return true;
-      const s = await getSettings();
-      const entry = { at: Date.now(), total: msg.total, summary: msg.summary };
-      await browser.storage.local.set({ settings: { ...s, history: [entry, ...(s.history || [])].slice(0, 50) }, cleanResult: { at: Date.now(), total: msg.total, stopped: msg.stopped } });
+      await recordEngagement(msg.results).catch((e) => console.warn("[cleaner] engagement not recorded:", e.message));
+      await browser.storage.local.set({ settings: await withHistoryEntry(msg), cleanResult: { at: Date.now(), total: msg.total, stopped: msg.stopped } });
       const { runOptions } = await browser.storage.local.get("runOptions");
       if (runOptions?.notify && msg.total > 0) {
         browser.notifications.create({ type: "basic", iconUrl: browser.runtime.getURL("icons/icon-96.png"), title: "Inbox Broom", message: `Auto-clean handled ${msg.total} conversation(s).` });
@@ -1013,7 +1216,7 @@ browser.__onMessage(async (msg) => {
     case "senderStats":
       return getSenderStats();
     case "aiCacheClear":
-      await browser.storage.local.remove(["aiCache", "senderStats"]);
+      await browser.storage.local.remove(["aiCache", "senderStats", "senderEngagement"]);
       return true;
     case "aiLogGet":
       return getStore("aiLog", []);

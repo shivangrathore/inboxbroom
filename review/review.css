@@ -7,7 +7,7 @@ body { padding-bottom: 76px; }
 .tools select { width: auto; }
 .filters { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 8px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.chips .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-right: 4px; }
+.chips .lbl { font-size: 11px; font-weight: 600; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.4px; margin-right: 4px; }
 .chip.danger.active { background: var(--danger); border-color: var(--danger); color: #fff; }
 .chip.stat { cursor: default; background: var(--muted); border-color: transparent; height: auto; padding: 6px 12px; }
 .chip.stat b { font-size: 14px; }
@@ -18,20 +18,20 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; 
 .detail { position: sticky; top: 72px; width: 360px; flex: none; max-height: calc(100vh - 160px); overflow-y: auto; }
 .detail .card-b { display: flex; flex-direction: column; gap: 10px; }
 .detail .subject { font-weight: 600; font-size: 15px; }
-.detail .snippet { color: var(--muted); font-size: 13px; }
+.detail .snippet { color: var(--muted-foreground); font-size: 13px; }
 .detail .kv { display: grid; grid-template-columns: 90px 1fr; gap: 4px 10px; font-size: 13px; }
-.detail .kv b { color: var(--muted); font-weight: 600; font-size: 12px; }
+.detail .kv b { color: var(--muted-foreground); font-weight: 600; font-size: 12px; }
 .detail .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* rule sections */
 details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--muted); }
 details.sec > summary::-webkit-details-marker { display: none; }
 details.sec > summary b { flex: 0 0 auto; }
-details.sec > summary .q { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+details.sec > summary .q { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 details.sec > summary .n { font-weight: 600; white-space: nowrap; }
 details.sec > summary .n.danger { color: var(--danger); }
 details.sec > summary input { margin: 0; }
-details.sec .note { padding: 8px 14px 12px; color: var(--muted); font-size: 13px; }
+details.sec .note { padding: 8px 14px 12px; color: var(--muted-foreground); font-size: 13px; }
 
 /* item rows */
 .item { display: grid; grid-template-columns: 28px 32px 200px minmax(0, 1fr) 64px 92px 150px; gap: 10px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); cursor: pointer; }
@@ -40,16 +40,16 @@ details.sec .note { padding: 8px 14px 12px; color: var(--muted); font-size: 13px
 .item.off > :not(.c) { opacity: 0.45; }
 .item .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item .subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .subj small { color: var(--muted); }
-.item .date { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.item .subj small { color: var(--muted-foreground); }
+.item .date { color: var(--muted-foreground); font-size: 12px; white-space: nowrap; }
 .item .lab { overflow: hidden; }
 .item .lab .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
 .item input { margin: 0; }
 .group { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--surface-2); border-top: 1px solid var(--line); font-weight: 600; font-size: 13px; }
-.group .n { color: var(--muted); font-weight: 400; }
+.group .n { color: var(--muted-foreground); font-weight: 400; }
 .group input { margin: 0; }
 .bulk-sample { padding: 4px 14px 10px; display: grid; grid-template-columns: 200px 1fr 70px; gap: 4px 10px; font-size: 13px; }
-.bulk-sample .d { color: var(--muted); font-size: 12px; text-align: right; }
+.bulk-sample .d { color: var(--muted-foreground); font-size: 12px; text-align: right; }
 .bulk-sample .w { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulk-sample .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

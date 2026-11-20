@@ -1,13 +1,14 @@
 {
   "name": "inboxbroom",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Inbox Broom: Firefox extension that sweeps junk out of Gmail by driving the web UI, with optional local-LLM triage via Ollama.",
   "scripts": {
-    "lint": "web-ext lint --source-dir . --ignore-files 'contrib/**' 'scripts/**' 'docs/**' 'dist/**' '*.md' 'package*.json' '.github/**' 'manifest.chrome.json' 'background.sw.js'",
+    "lint": "web-ext lint --source-dir . --ignore-files 'contrib/**' 'scripts/**' 'docs/**' 'dist/**' '*.md' 'package*.json' '.github/**' 'manifest.chrome.json' 'background.sw.js' 'amo-metadata.json'",
     "build": "bash scripts/build.sh",
     "run": "web-ext run --source-dir . --start-url https://mail.google.com",
-    "sign": "web-ext sign --source-dir . --ignore-files 'contrib/**' 'scripts/**' 'docs/**' 'dist/**' '*.md' 'package*.json' '.github/**' 'manifest.chrome.json' 'background.sw.js' --channel unlisted"
+    "sign": "web-ext sign --source-dir . --ignore-files 'contrib/**' 'scripts/**' 'docs/**' 'dist/**' '*.md' 'package*.json' '.github/**' 'manifest.chrome.json' 'background.sw.js' 'amo-metadata.json' --channel unlisted",
+    "sign:amo": "web-ext sign --source-dir . --ignore-files 'contrib/**' 'scripts/**' 'docs/**' 'dist/**' '*.md' 'package*.json' '.github/**' 'manifest.chrome.json' 'background.sw.js' 'amo-metadata.json' --channel listed --amo-metadata amo-metadata.json"
   },
   "devDependencies": {
     "web-ext": "^8.3.0"

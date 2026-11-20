@@ -183,14 +183,17 @@ function syncProvider() {
 }
 $("aiProvider").onchange = syncProvider;
 
-/** Cloud providers live on arbitrary hosts: ask Firefox for that origin once. */
+/** Cloud providers live on arbitrary hosts: ask Firefox for that origin once,
+ * plus (Firefox) consent to send mail text there unless the endpoint is on this machine. */
 async function ensureHostPermission(ai) {
-  let origin = null;
-  if (ai.provider === "openai") { try { origin = new URL(ai.openaiEndpoint).origin + "/*"; } catch {} }
-  if (ai.provider === "anthropic") origin = "https://api.anthropic.com/*";
-  if (!origin) return true;
-  if (await browser.permissions.contains({ origins: [origin] })) return true;
-  return browser.permissions.request({ origins: [origin] });
+  let url = null;
+  if (ai.provider === "openai") { try { url = new URL(ai.openaiEndpoint); } catch {} }
+  if (ai.provider === "anthropic") url = new URL("https://api.anthropic.com");
+  if (!url) return true;
+  const req = { origins: [url.origin + "/*"] };
+  if (!browser.__isChromium && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) req.data_collection = ["personalCommunications"];
+  if (await browser.permissions.contains(req)) return true;
+  return browser.permissions.request(req);
 }
 
 function readAi() {

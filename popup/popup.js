@@ -32,6 +32,8 @@ function friendlyError(e) {
   if (m === "Already running") return "A run is already in progress in the Gmail tab.";
   return m;
 }
+const UNDO_MS = 7 * 86400000;
+const canUndo = (h) => !!h.undo && !h.undo.undone && Date.now() - h.at < UNDO_MS && !!(h.undo.label || Object.keys(h.undo.labeled || {}).length);
 const selectedRuleIds = () => [...settings.rules.filter((r) => r.enabled).map((r) => r.id), ...(settings.retentionEnabled ? ["retention"] : [])];
 
 function showPage(name) {
@@ -162,14 +164,46 @@ function renderHistory(history) {
     grow.querySelector(".t").textContent = `${h.total} deleted${labeled ? ` · ${labeled} labeled` : ""}`;
     grow.querySelector(".s").textContent = `${new Date(h.at).toLocaleString()} · ${(h.summary || []).filter((x) => x.count).map((x) => `${x.count} ${x.rule}`).join(", ") || "nothing matched"}`;
     row.appendChild(grow);
-    const warn = (h.summary || []).filter((x) => x.warn).length;
-    if (warn) {
+    const warns = [...(h.summary || []).filter((x) => x.warn).map((x) => x.warn), ...(h.undo?.warn ? [h.undo.warn] : [])];
+    if (warns.length) {
       const b = document.createElement("span");
       b.className = "badge junk";
-      b.textContent = `${warn} warning${warn > 1 ? "s" : ""}`;
+      b.textContent = `${warns.length} warning${warns.length > 1 ? "s" : ""}`;
+      b.title = warns.join("\n");
       row.appendChild(b);
     }
+    if (h.undo?.undone) {
+      const b = document.createElement("span");
+      b.className = "badge neutral";
+      b.textContent = "undone";
+      b.title = `${h.undo.undone.restored} back in the Inbox, ${h.undo.undone.unlabeled} unlabeled · ${new Date(h.undo.undone.at).toLocaleString()}`;
+      row.appendChild(b);
+    } else if (canUndo(h)) {
+      const u = document.createElement("button");
+      u.className = "btn sm outline";
+      u.textContent = "Undo";
+      u.title = `Available until ${new Date(h.at + UNDO_MS).toLocaleString()}`;
+      u.onclick = () => undoRun(h);
+      row.appendChild(u);
+    }
     root.appendChild(row);
+  }
+}
+
+async function undoRun(h) {
+  const labeled = Object.values(h.undo.labeled || {}).reduce((n, ids) => n + ids.length, 0);
+  const parts = [];
+  if (h.undo.label && h.total) parts.push(`${h.total} conversation(s) go back to the Inbox, tagged "Broom restored" so later runs leave them alone`);
+  if (labeled) parts.push(`${labeled} AI label(s) come off`);
+  if (!confirm(`Undo the run from ${new Date(h.at).toLocaleString()}?\n\n${parts.join(";\n")}.\n\nUnsubscribes cannot be undone.`)) return;
+  setBusy(true);
+  showPage("clean");
+  setStatus("Undoing… watch the Gmail tab.", "running");
+  try {
+    await send("undo", { at: h.at }); // result arrives through storage (undoResult)
+  } catch (e) {
+    setStatus(friendlyError(e), "error");
+    setBusy(false);
   }
 }
 
@@ -250,6 +284,13 @@ browser.storage.onChanged.addListener(async (ch) => {
   if (ch.cleanResult?.newValue) {
     const r = ch.cleanResult.newValue;
     setStatus(`Cleaned ${r.total} conversation(s).${r.stopped ? " Stopped early." : ""}`, "ok");
+    setBusy(false);
+    settings = await send("getSettings");
+    renderHistory(settings.history || []);
+  }
+  if (ch.undoResult?.newValue) {
+    const r = ch.undoResult.newValue;
+    setStatus(r.error ? `Undo stopped: ${r.error}` : `Undone: ${r.restored} back in the Inbox, ${r.unlabeled} unlabeled.${r.warnings?.length ? ` ${r.warnings.join(" | ")}` : ""}`, r.error || r.warnings?.length ? "error" : "ok");
     setBusy(false);
     settings = await send("getSettings");
     renderHistory(settings.history || []);

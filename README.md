@@ -21,7 +21,7 @@ Optional **local AI** (Ollama) decides what is junk, labels what you keep, and s
 Preview  →  review page (edit verdicts, labels, subscriptions)  →  Confirm
 ```
 
-Nothing is ever permanently deleted: junk goes to Trash (30-day undo), kept mail stays in the inbox with a label.
+Nothing is ever permanently deleted: junk goes to Trash (30-day undo), kept mail stays in the inbox with a label, and any run can be undone in one click for 7 days.
 
 ## What it does
 
@@ -31,9 +31,10 @@ Nothing is ever permanently deleted: junk goes to Trash (30-day undo), kept mail
 | **AI triage** | For the rest of the inbox: sender + subject + preview of each row go to a local Ollama model, which returns *junk / keep* with a confidence and a reason. Only junk rows are ticked and trashed. |
 | **Labels** | Every kept mail gets one label, chosen from **your existing Gmail labels** first, then a fallback set (Finance, Orders, Support, Security, Dev, Work, Travel, Government, Personal) created on first use. Uses Gmail's *Label as* menu. |
 | **Retention** | The inbox is a queue, the archive is forever. Each label has an inbox lifetime (Security 7 d, Orders/Dev 30 d, Support 45 d, Work/Personal 60 d, Finance/Government 90 d, Travel 120 d) plus a catch-all for unlabeled inbox mail (90 d). Expired mail is trashed on the next run, after appearing in the preview. Archived, starred and important mail is never touched: archive anything you want to keep. |
-| **Unsubscribe** | Reads Gmail's *Manage subscriptions* page; the AI suggests senders that add no value. Confirm clicks Gmail's own Unsubscribe. Banks, brokers, shops, hosting, GitHub, telecom, government are never pre-selected. |
+| **Unsubscribe** | Reads Gmail's *Manage subscriptions* page and scores each sender on how many of their mails you actually opened (tracked from rows the scans already see), how triage treated them, and volume. The AI decides with those signals; never-opened, always-junk senders are suggested even if it hesitates, senders you usually open never are, and without a model the score alone decides. If that page (sidebar → More) can't be read: candidates are bulk senders the scans saw at least twice, and Confirm opens each one's latest mail and clicks the Unsubscribe link Gmail shows next to the sender (never a link inside the mail). Confirm clicks Gmail's own Unsubscribe. Banks, brokers, shops, hosting, GitHub, telecom, government are never pre-selected. |
 | **Label tools** | *Organize labels* creates the taxonomy labels in Gmail, renames them to match your existing style (`[Finance]` → `[Orders]`, auto-detected or set), colors them and pins the important ones in the sidebar (show / show-if-unread / hide), all through Gmail's own dialogs. |
 | **Review page** | Full-tab table: filter, group by sender, flip verdicts, change labels, "always delete / always keep" per sender, tick/untick anything, then one Confirm button with exact counts. |
+| **Undo** | Popup → Activity → *Undo* on any run from the last 7 days. Each run tags what it trashes or archives with a temporary label (`Broom undo 261118-183827`); Undo moves exactly those back to the Inbox, takes the run's AI labels off again, and deletes the tag. Restored mail gets a `Broom restored` label that every rule skips, so the next run doesn't trash it again. Tags of runs you don't undo are deleted after 7 days. Unsubscribes can't be undone. |
 | **Memory** | Verdicts cached per thread; after 2 consistent junk verdicts a sender is auto-junk with no model call. Your overrides win. Exportable AI log for tuning. |
 | **Safety** | Every rule is inbox-only (`in:inbox` forced) unless you opt out, so archived or labeled mail is never swept up by a delete rule. Stop button in-page. English Gmail UI selectors fail safe with a diagnostic message, nothing is clicked blind. |
 
@@ -67,7 +68,7 @@ Without a model only bulk rules run. With one you get triage, labels and unsubsc
 | **OpenAI-compatible** | sender, subject, ~200 chars of preview per mail | per token | works with OpenAI, OpenRouter, Groq, Mistral, Gemini (OpenAI compat endpoint), LM Studio, vLLM… set base URL + key + model |
 | **Anthropic** | same | per token | `claude-opus-5-5` default (low effort), `claude-haiku-5-5` for cheap bulk triage |
 
-API keys are stored only in the extension's local storage. Firefox asks once for permission to contact the provider's host.
+API keys are stored only in the extension's local storage. Firefox asks once for permission to contact the provider's host and to send it mail data (*personal communications*); nothing goes to a cloud provider until you allow both. See [PRIVACY.md](PRIVACY.md).
 
 ### Ollama
 

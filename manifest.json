@@ -1,12 +1,16 @@
 {
   "manifest_version": 2,
   "name": "Inbox Broom",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Sweeps junk out of Gmail from Firefox: bulk rules plus optional local AI (Ollama) to delete junk, label what you keep, and unsubscribe. No API keys, nothing leaves your machine.",
   "browser_specific_settings": {
     "gecko": {
       "id": "inboxbroom@shivangrathore.github.io",
-      "strict_min_version": "115.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": ["personalCommunications"]
+      }
     }
   },
   "permissions": [
