@@ -125,8 +125,8 @@ const DEFAULT_SETTINGS = {
     suggestedLabels: ["Finance", "Orders", "Support", "Security", "Dev", "Work", "Travel", "Government", "Personal"], // created on first use if missing
     ignoreLabels: ["Notes", "Cleaned"], // existing labels the AI must not use
   },
-  // label style: "auto" copies the style of your existing labels ("[Finance]" → "[{name}]"), or set "{name}" / "[{name}]" / "@{name}" …
-  labelFormat: "auto",
+  // label style: brackets by default, since plain words like Personal / Travel / Social collide with Gmail's reserved names. "auto" copies the style of your existing labels, or set "{name}" / "@{name}" …
+  labelFormat: "[{name}]",
   // per taxonomy label: Gmail color name and sidebar visibility (show | hide | unread = show if unread)
   labelStyle: {
     Finance: { color: "yellow", show: "show" },
@@ -150,7 +150,7 @@ const DEFAULT_SETTINGS = {
 const normLabel = (l) => String(l || "").trim().replace(/^\[|\]$/g, "").replace(/^[@#!]/, "").toLowerCase();
 function detectFormat(existing) {
   const user = (existing || []).filter(Boolean);
-  if (!user.length) return "{name}";
+  if (!user.length) return "[{name}]";
   const br = user.filter((l) => /^\[.+\]$/.test(l)).length;
   return br * 2 >= user.length ? "[{name}]" : "{name}";
 }
@@ -429,7 +429,10 @@ async function onScanFinished(res, { openReview = true } = {}) {
     }
     await browser.storage.local.set({ progress: { text: "", at: Date.now(), running: false } });
   }
-  await browser.storage.local.set({ lastPreview: { at: Date.now(), results: res.results, labels: res.labels || [], subscriptions, stopped: res.stopped } });
+  // the model failing is otherwise invisible: verdicts silently fall back to heuristics and no mail gets a label
+  const aiFail = (res.results || []).filter((r) => r.rule?.type === "ai").flatMap((r) => r.items || []).find((it) => /^model error/.test(it.reason || ""));
+  const aiError = aiFail ? aiFail.reason.replace(/; heuristics only$/, "") : "";
+  await browser.storage.local.set({ lastPreview: { at: Date.now(), results: res.results, labels: res.labels || [], subscriptions, stopped: res.stopped, aiError } });
   if (openReview) await openReviewTab();
 }
 
@@ -781,7 +784,7 @@ async function aiClassify(items, rule, existingLabels = []) {
       if (score == null) {
         // model gave nothing usable: fall back to heuristics alone
         score = 50 + heuristicAdjust(hints);
-        reason = "no model verdict; heuristics only";
+        reason = /^model error/.test(scores[k].reason || "") ? `${scores[k].reason}; heuristics only` : "no model verdict; heuristics only";
       } else if (ai.heuristics) {
         score = Math.max(0, Math.min(100, score + heuristicAdjust(hints)));
       }
@@ -1169,10 +1172,10 @@ browser.__onMessage(async (msg) => {
       if (!tab) throw new Error("NO_GMAIL_TAB");
       await browser.tabs.update(tab.id, { active: true });
       const names = [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.retention || {}).filter((k) => k !== "*"), ...Object.keys(s.labelStyle || {})])];
-      const res = await browser.__tabSend(tab.id, {
+      const res = await sendToGmail(tab.id, {
         type: msg.type,
         names,
-        labelFormat: s.labelFormat || "auto",
+        labelFormat: s.labelFormat || "[{name}]",
         style: s.labelStyle || {},
       });
       if (res?.labels) await browser.storage.local.set({ knownLabels: res.labels });
@@ -1184,7 +1187,7 @@ browser.__onMessage(async (msg) => {
     case "listLabels": {
       const tab = await findGmailTab();
       if (!tab) throw new Error("NO_GMAIL_TAB");
-      return browser.__tabSend(tab.id, { type: "listLabels" });
+      return sendToGmail(tab.id, { type: "listLabels" });
     }
     case "aiCacheMerge": {
       const cache = await getAiCache();

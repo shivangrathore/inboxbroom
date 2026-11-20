@@ -379,7 +379,7 @@
     const mine = new Set(ours.map(normLabel));
     const user = existing.filter((l) => !mine.has(normLabel(l)) || /^\[.+\]$/.test(l));
     const br = user.filter((l) => /^\[.+\]$/.test(l)).length;
-    return user.length && br * 2 >= user.length ? "[{name}]" : "{name}";
+    return !user.length || br * 2 >= user.length ? "[{name}]" : "{name}";
   }
 
   async function createLabels({ names, labelFormat }) {

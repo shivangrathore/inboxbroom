@@ -266,6 +266,7 @@ function render() {
   const main = $("main");
   main.innerHTML = "";
   let any = false;
+  if (preview.aiError) { const b = document.createElement("div"); b.className = "card banner small"; b.textContent = `The AI model failed, so no labels were assigned and verdicts use heuristics only. ${preview.aiError}. Check Settings → AI model → Test connection.`; main.appendChild(b); }
   if (!state.rule) renderSubscriptions(main);
   for (const r of preview.results) {
     if (state.rule && r.rule.id !== state.rule) continue;

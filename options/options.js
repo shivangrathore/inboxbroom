@@ -137,7 +137,7 @@ async function loadInner() {
   rulesRoot.innerHTML = "";
   for (const r of s.rules) rulesRoot.appendChild(ruleRow(r));
   $("allowlist").value = (s.allowlist || []).join("\n");
-  $("labelFormat").value = s.labelFormat || "auto";
+  $("labelFormat").value = s.labelFormat || "[{name}]";
   const sb = document.querySelector("#labelStyle tbody");
   sb.innerHTML = "";
   for (const l of [...new Set([...(s.ai.suggestedLabels || []), ...Object.keys(s.labelStyle || {})])]) sb.appendChild(styleRow(l, s.labelStyle?.[l]));
@@ -241,7 +241,7 @@ async function save() {
       rules: readRules(),
       allowlist: $("allowlist").value.split("\n").map((l) => l.trim()).filter(Boolean),
       returnToInbox: $("returnToInbox").checked,
-      labelFormat: $("labelFormat").value.trim() || "auto",
+      labelFormat: $("labelFormat").value.trim() || "[{name}]",
       labelStyle: readLabelStyle(),
       theme: document.querySelector("#themeSeg button.active")?.dataset.v || "system",
       retentionEnabled: $("retentionEnabled").checked,
@@ -276,13 +276,19 @@ $("aiExport").onclick = async () => {
   await browser.downloads.download({ url, filename: "gmail-cleaner-ai-log.json", saveAs: false });
   $("aiResult").textContent = `Exported ${log.length} classified mail(s) to Downloads/gmail-cleaner-ai-log.json`;
 };
+const toolError = (e) =>
+  e.message === "NO_GMAIL_TAB"
+    ? "Open Gmail in a tab first."
+    : /receiving end|Could not establish/i.test(e.message)
+      ? "Gmail tab isn't responding. Reload the Gmail tab (F5) and try again."
+      : e.message;
 $("toolListLabels").onclick = async () => {
   $("toolResult").textContent = "Reading…";
   try {
     const l = await send("listLabels");
     $("toolResult").textContent = l.length ? `${l.length} labels: ${l.join(", ")}` : "No labels found.";
   } catch (e) {
-    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+    $("toolResult").textContent = toolError(e);
   }
 };
 $("toolCreateLabels").onclick = async () => {
@@ -294,7 +300,7 @@ $("toolCreateLabels").onclick = async () => {
       `Created: ${r.created.join(", ") || "none"}. Already existed: ${r.existing.join(", ") || "none"}.` +
       (r.failed.length ? ` Failed: ${r.failed.map((f) => `${f.name} (${f.error})`).join("; ")}` : "");
   } catch (e) {
-    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+    $("toolResult").textContent = toolError(e);
   }
 };
 $("toolOrganizeLabels").onclick = async () => {
@@ -305,7 +311,7 @@ $("toolOrganizeLabels").onclick = async () => {
     $("toolResult").style.whiteSpace = "pre-wrap";
     $("toolResult").textContent = describeReport({ at: Date.now(), ...r });
   } catch (e) {
-    $("toolResult").textContent = e.message === "NO_GMAIL_TAB" ? "Open Gmail in a tab first." : e.message;
+    $("toolResult").textContent = toolError(e);
   }
 };
 $("aiTest").onclick = async () => {
