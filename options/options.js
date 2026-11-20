@@ -77,7 +77,7 @@ function ruleRow(rule = {}) {
   q(".name").value = rule.name || "";
   q(".query").value = rule.query || "";
   q(".action").value = rule.action === "trash" ? "delete" : rule.action || "delete";
-  q(".label").value = rule.label || "";
+  q("input.label").value = rule.label || "";
   q(".inbox").checked = rule.inboxOnly !== false;
   q(".pages").value = rule.maxPages || 10;
   const grow = () => { const t = q(".query"); t.style.height = "auto"; t.style.height = Math.max(40, t.scrollHeight + 2) + "px"; };
@@ -92,7 +92,7 @@ function ruleRow(rule = {}) {
     tb.textContent = ai ? "AI" : "Bulk";
     tb.className = `badge rule-type ${ai ? "label" : "neutral"}`;
     const ab = q(".rule-act");
-    ab.textContent = act === "delete" ? "Trash" : act === "label" ? `Label ${q(".label").value.trim() || "…"}` : "Archive";
+    ab.textContent = act === "delete" ? "Trash" : act === "label" ? `Label ${q("input.label").value.trim() || "…"}` : "Archive";
     ab.className = `rule-act ${act === "delete" ? "act-del" : "act-keep"}`;
     card.classList.toggle("off", !q(".on").checked);
   };
@@ -120,7 +120,7 @@ function readRules() {
       name: c.querySelector(".name").value.trim() || c.querySelector(".query").value.trim(),
       query: c.querySelector(".query").value.trim().replace(/\s+/g, " "),
       action: c.querySelector(".action").value,
-      label: c.querySelector(".label").value.trim() || "Cleaned",
+      label: c.querySelector("input.label").value.trim() || "Cleaned",
       inboxOnly: c.querySelector(".inbox").checked,
       maxPages: Math.max(1, Number(c.querySelector(".pages").value) || 10),
     }))
