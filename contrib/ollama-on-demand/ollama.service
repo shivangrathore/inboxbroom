@@ -3,7 +3,8 @@ Description=Ollama backend (started on demand by ollama-proxy.socket)
 StopWhenUnneeded=yes
 
 [Service]
-ExecStart=/usr/bin/ollama serve
+# tries the path the installer detected, then the usual homes of the binary, then whatever PATH has ($$ and %% are systemd escapes)
+ExecStart=/bin/sh -c 'for p in "@OLLAMA@" /usr/bin/ollama /usr/local/bin/ollama "$$HOME/.local/bin/ollama" /opt/ollama/bin/ollama; do [ -x "$$p" ] && exec "$$p" serve; done; exec ollama serve'
 # wait until the API answers so the proxy never hits a closed port
 ExecStartPost=/bin/sh -c 'for i in $(seq 1 100); do curl -sf http://127.0.0.1:11435/ >/dev/null && exit 0; sleep 0.2; done; exit 1'
 Environment=OLLAMA_HOST=127.0.0.1:11435

@@ -14,8 +14,8 @@ if systemctl is-active --quiet ollama 2>/dev/null; then
 fi
 mkdir -p "$dest"
 cp "$here"/ollama-proxy.socket "$here"/ollama-proxy.service "$dest"/
-# the unit must point at wherever ollama really lives (/usr/bin from distro packages, /usr/local/bin from the official installer)
-sed "s|^ExecStart=.*|ExecStart=$(command -v ollama) serve|" "$here"/ollama.service > "$dest"/ollama.service
+# put the detected binary first in the unit's search list (/usr/bin from distro packages, /usr/local/bin from the official installer)
+sed "s|@OLLAMA@|$(command -v ollama)|" "$here"/ollama.service > "$dest"/ollama.service
 systemctl --user daemon-reload
 systemctl --user enable --now ollama-proxy.socket
 echo "Installed. First request to http://127.0.0.1:11434 starts Ollama; it stops 3 min after the last one."
